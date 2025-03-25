@@ -1,0 +1,7 @@
+FROM golang:1.24-alpine
+
+WORKDIR /app
+
+COPY ./build/linux/amd64/board /usr/local/bin/board
+
+ENTRYPOINT ["/usr/local/bin/board"]
