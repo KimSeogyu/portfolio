@@ -13,6 +13,7 @@ type Repository interface {
 	FindAll(ctx context.Context, pagination *db.CursorBasedPagination) (*db.CursorBasedPaginationResponse[Posting], error)
 	FindOneByID(ctx context.Context, id int) (*Posting, error)
 	Update(ctx context.Context, id int, data Posting) error
+	IncrementViewCount(ctx context.Context, id int) error
 }
 
 type postingsGormRepository struct {
@@ -98,6 +99,13 @@ func (p *postingsGormRepository) FindOneByID(ctx context.Context, id int) (*Post
 func (p *postingsGormRepository) Update(ctx context.Context, id int, data Posting) error {
 	tx := p.db.WithContext(ctx)
 	return tx.Model(&Posting{}).Where("id = ?", id).Updates(data).Error
+}
+
+// IncrementViewCount implements db.Repository.
+func (p *postingsGormRepository) IncrementViewCount(ctx context.Context, id int) error {
+	tx := p.db.WithContext(ctx)
+	return tx.Model(&Posting{}).Where("id = ?", id).
+		Update("view_count", gorm.Expr("view_count + ?", 1)).Error
 }
 
 func NewRepository(db *gorm.DB) *postingsGormRepository {

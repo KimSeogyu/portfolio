@@ -9,6 +9,7 @@ import (
 	mockComments "github.com/kimseogyu/portfolio/backend/cmd/board/internal/comments/mocks"
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings"
 	mockPostings "github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings/mocks"
+	mockCache "github.com/kimseogyu/portfolio/backend/internal/cache/mocks"
 	"github.com/kimseogyu/portfolio/backend/internal/db"
 	boardServer "github.com/kimseogyu/portfolio/backend/internal/proto/board/v1"
 	"github.com/kimseogyu/portfolio/backend/pkg/authenticator"
@@ -19,7 +20,41 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-// 인증된 컨텍스트 생성 헬퍼 함수
+// 테스트를 위한 모의 객체와 서비스를 생성하는 구조체
+type testFixture struct {
+	ctrl            *gomock.Controller
+	mockCommentRepo *mockComments.MockRepository
+	mockPostingRepo *mockPostings.MockRepository
+	mockCache       *mockCache.MockCache
+	service         *Service
+}
+
+// 테스트 픽스처 생성 함수
+func newTestFixture(t *testing.T) *testFixture {
+	ctrl := gomock.NewController(t)
+
+	mockCommentRepo := mockComments.NewMockRepository(ctrl)
+	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	mockCache := mockCache.NewMockCache(ctrl)
+
+	service, err := NewService(
+		WithCommentRepository(mockCommentRepo),
+		WithPostingRepository(mockPostingRepo),
+		WithAuthenticator(&authenticator.TestAuthenticator{}),
+		WithCache(mockCache),
+	)
+	require.NoError(t, err)
+
+	return &testFixture{
+		ctrl:            ctrl,
+		mockCommentRepo: mockCommentRepo,
+		mockPostingRepo: mockPostingRepo,
+		mockCache:       mockCache,
+		service:         service,
+	}
+}
+
+// 테스트용 컨텍스트 생성 함수
 func createAuthContext() context.Context {
 	ctx := context.Background()
 	md := metadata.New(map[string]string{
@@ -29,29 +64,17 @@ func createAuthContext() context.Context {
 }
 
 func TestCreateComment(t *testing.T) {
-	// gomock 컨트롤러 생성
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Mock 객체 생성
-	mockCommentRepo := mockComments.NewMockRepository(ctrl)
-	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	// 테스트 픽스처 생성
+	fixture := newTestFixture(t)
+	defer fixture.ctrl.Finish()
 
 	// Save 메서드 호출 시 성공 반환 설정
-	mockCommentRepo.EXPECT().
+	fixture.mockCommentRepo.EXPECT().
 		Save(gomock.Any(), gomock.AssignableToTypeOf(&comments.Comment{})).
 		DoAndReturn(func(ctx context.Context, comment *comments.Comment) error {
 			comment.ID = 123 // ID 할당
 			return nil
 		})
-
-	// 서비스 생성
-	service, err := NewService(
-		WithCommentRepository(mockCommentRepo),
-		WithPostingRepository(mockPostingRepo),
-		WithAuthenticator(&authenticator.TestAuthenticator{}),
-	)
-	require.NoError(t, err)
 
 	// 테스트 요청 생성
 	req := &boardServer.CreateCommentRequest{
@@ -64,7 +87,7 @@ func TestCreateComment(t *testing.T) {
 	ctx := createAuthContext()
 
 	// 메서드 호출
-	response, err := service.CreateComment(ctx, req)
+	response, err := fixture.service.CreateComment(ctx, req)
 
 	// 검증
 	assert.NoError(t, err)
@@ -79,29 +102,17 @@ func TestCreateComment(t *testing.T) {
 }
 
 func TestCreatePosting(t *testing.T) {
-	// gomock 컨트롤러 생성
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Mock 객체 생성
-	mockCommentRepo := mockComments.NewMockRepository(ctrl)
-	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	// 테스트 픽스처 생성
+	fixture := newTestFixture(t)
+	defer fixture.ctrl.Finish()
 
 	// Save 메서드 호출 시 성공 반환 설정
-	mockPostingRepo.EXPECT().
+	fixture.mockPostingRepo.EXPECT().
 		Save(gomock.Any(), gomock.AssignableToTypeOf(&postings.Posting{})).
 		DoAndReturn(func(ctx context.Context, posting *postings.Posting) error {
 			posting.ID = 789 // ID 할당
 			return nil
 		})
-
-	// 서비스 생성
-	service, err := NewService(
-		WithCommentRepository(mockCommentRepo),
-		WithPostingRepository(mockPostingRepo),
-		WithAuthenticator(&authenticator.TestAuthenticator{}),
-	)
-	require.NoError(t, err)
 
 	// 테스트 요청 생성
 	req := &boardServer.CreatePostingRequest{
@@ -115,7 +126,7 @@ func TestCreatePosting(t *testing.T) {
 	ctx := createAuthContext()
 
 	// 메서드 호출
-	response, err := service.CreatePosting(ctx, req)
+	response, err := fixture.service.CreatePosting(ctx, req)
 
 	// 검증
 	assert.NoError(t, err)
@@ -128,19 +139,15 @@ func TestCreatePosting(t *testing.T) {
 }
 
 func TestGetPosting(t *testing.T) {
-	// gomock 컨트롤러 생성
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Mock 객체 생성
-	mockCommentRepo := mockComments.NewMockRepository(ctrl)
-	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	// 테스트 픽스처 생성
+	fixture := newTestFixture(t)
+	defer fixture.ctrl.Finish()
 
 	// 테스트용 시간
 	now := time.Now()
 
 	// FindOneByID 메서드 호출 시 게시물 반환 설정
-	mockPostingRepo.EXPECT().
+	fixture.mockPostingRepo.EXPECT().
 		FindOneByID(gomock.Any(), 789).
 		Return(&postings.Posting{
 			ID:           789,
@@ -157,7 +164,7 @@ func TestGetPosting(t *testing.T) {
 
 	// GetByPostID 메서드 호출 시 댓글 반환 설정
 	parentID := int64(100)
-	mockCommentRepo.EXPECT().
+	fixture.mockCommentRepo.EXPECT().
 		GetByPostID(gomock.Any(), int64(789)).
 		Return([]comments.Comment{
 			{
@@ -184,24 +191,29 @@ func TestGetPosting(t *testing.T) {
 			},
 		}, nil)
 
-	// 서비스 생성
-	service, err := NewService(
-		WithCommentRepository(mockCommentRepo),
-		WithPostingRepository(mockPostingRepo),
-		WithAuthenticator(&authenticator.TestAuthenticator{}),
-	)
-	require.NoError(t, err)
-
 	// 테스트 요청 생성
 	req := &boardServer.GetPostingRequest{
 		PostingId: 789,
 	}
 
+	// 조회수 캐시 설정
+	fixture.mockCache.EXPECT().
+		Exists(gomock.Any(), gomock.Any()).
+		Return(false, nil)
+
+	fixture.mockPostingRepo.EXPECT().
+		IncrementViewCount(gomock.Any(), 789).
+		Return(nil)
+
+	fixture.mockCache.EXPECT().
+		Set(gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil)
+
 	// 컨텍스트 생성
 	ctx := context.Background()
 
 	// 메서드 호출
-	response, err := service.GetPosting(ctx, req)
+	response, err := fixture.service.GetPosting(ctx, req)
 
 	// 검증
 	assert.NoError(t, err)
@@ -213,16 +225,12 @@ func TestGetPosting(t *testing.T) {
 }
 
 func TestDeletePosting(t *testing.T) {
-	// gomock 컨트롤러 생성
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Mock 객체 생성
-	mockCommentRepo := mockComments.NewMockRepository(ctrl)
-	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	// 테스트 픽스처 생성
+	fixture := newTestFixture(t)
+	defer fixture.ctrl.Finish()
 
 	// FindOneByID 메서드 호출 시 게시물 반환 설정
-	mockPostingRepo.EXPECT().
+	fixture.mockPostingRepo.EXPECT().
 		FindOneByID(gomock.Any(), 789).
 		Return(&postings.Posting{
 			ID:         789,
@@ -233,17 +241,9 @@ func TestDeletePosting(t *testing.T) {
 		}, nil)
 
 	// Delete 메서드 호출 시 성공 반환 설정
-	mockPostingRepo.EXPECT().
+	fixture.mockPostingRepo.EXPECT().
 		Delete(gomock.Any(), 789).
 		Return(nil)
-
-	// 서비스 생성
-	service, err := NewService(
-		WithCommentRepository(mockCommentRepo),
-		WithPostingRepository(mockPostingRepo),
-		WithAuthenticator(&authenticator.TestAuthenticator{}),
-	)
-	require.NoError(t, err)
 
 	// 테스트 요청 생성
 	req := &boardServer.DeletePostingRequest{
@@ -254,7 +254,7 @@ func TestDeletePosting(t *testing.T) {
 	ctx := createAuthContext()
 
 	// 메서드 호출
-	response, err := service.DeletePosting(ctx, req)
+	response, err := fixture.service.DeletePosting(ctx, req)
 
 	// 검증
 	assert.NoError(t, err)
@@ -263,16 +263,12 @@ func TestDeletePosting(t *testing.T) {
 }
 
 func TestDeleteComment(t *testing.T) {
-	// gomock 컨트롤러 생성
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Mock 객체 생성
-	mockCommentRepo := mockComments.NewMockRepository(ctrl)
-	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	// 테스트 픽스처 생성
+	fixture := newTestFixture(t)
+	defer fixture.ctrl.Finish()
 
 	// GetByID 메서드 호출 시 댓글 반환 설정
-	mockCommentRepo.EXPECT().
+	fixture.mockCommentRepo.EXPECT().
 		GetByID(gomock.Any(), int64(123)).
 		Return(&comments.Comment{
 			ID:         123,
@@ -283,17 +279,9 @@ func TestDeleteComment(t *testing.T) {
 		}, nil)
 
 	// Delete 메서드 호출 시 성공 반환 설정
-	mockCommentRepo.EXPECT().
+	fixture.mockCommentRepo.EXPECT().
 		Delete(gomock.Any(), int64(123)).
 		Return(nil)
-
-	// 서비스 생성
-	service, err := NewService(
-		WithCommentRepository(mockCommentRepo),
-		WithPostingRepository(mockPostingRepo),
-		WithAuthenticator(&authenticator.TestAuthenticator{}),
-	)
-	require.NoError(t, err)
 
 	// 테스트 요청 생성
 	req := &boardServer.DeleteCommentRequest{
@@ -305,7 +293,7 @@ func TestDeleteComment(t *testing.T) {
 	ctx := createAuthContext()
 
 	// 메서드 호출
-	response, err := service.DeleteComment(ctx, req)
+	response, err := fixture.service.DeleteComment(ctx, req)
 
 	// 검증
 	assert.NoError(t, err)
@@ -314,19 +302,15 @@ func TestDeleteComment(t *testing.T) {
 }
 
 func TestUpdateComment(t *testing.T) {
-	// gomock 컨트롤러 생성
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Mock 객체 생성
-	mockCommentRepo := mockComments.NewMockRepository(ctrl)
-	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	// 테스트 픽스처 생성
+	fixture := newTestFixture(t)
+	defer fixture.ctrl.Finish()
 
 	// 테스트용 시간
 	now := time.Now()
 
 	// GetByID 메서드 호출 시 댓글 반환 설정
-	mockCommentRepo.EXPECT().
+	fixture.mockCommentRepo.EXPECT().
 		GetByID(gomock.Any(), int64(123)).
 		Return(&comments.Comment{
 			ID:         123,
@@ -339,21 +323,13 @@ func TestUpdateComment(t *testing.T) {
 		}, nil)
 
 	// Save 메서드 호출 시 성공 반환 설정
-	mockCommentRepo.EXPECT().
+	fixture.mockCommentRepo.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, comment *comments.Comment) error {
 			assert.Equal(t, int64(123), comment.ID)
 			assert.Equal(t, "Updated comment", comment.Content)
 			return nil
 		})
-
-	// 서비스 생성
-	service, err := NewService(
-		WithCommentRepository(mockCommentRepo),
-		WithPostingRepository(mockPostingRepo),
-		WithAuthenticator(&authenticator.TestAuthenticator{}),
-	)
-	require.NoError(t, err)
 
 	// 테스트 요청 생성
 	req := &boardServer.UpdateCommentRequest{
@@ -366,7 +342,7 @@ func TestUpdateComment(t *testing.T) {
 	ctx := createAuthContext()
 
 	// 메서드 호출
-	response, err := service.UpdateComment(ctx, req)
+	response, err := fixture.service.UpdateComment(ctx, req)
 
 	// 검증
 	assert.NoError(t, err)
@@ -376,19 +352,15 @@ func TestUpdateComment(t *testing.T) {
 }
 
 func TestUpdatePosting(t *testing.T) {
-	// gomock 컨트롤러 생성
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Mock 객체 생성
-	mockCommentRepo := mockComments.NewMockRepository(ctrl)
-	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	// 테스트 픽스처 생성
+	fixture := newTestFixture(t)
+	defer fixture.ctrl.Finish()
 
 	// 테스트용 시간
 	now := time.Now()
 
 	// FindOneByID 메서드 호출 시 게시물 반환 설정
-	mockPostingRepo.EXPECT().
+	fixture.mockPostingRepo.EXPECT().
 		FindOneByID(gomock.Any(), 789).
 		Return(&postings.Posting{
 			ID:         789,
@@ -401,7 +373,7 @@ func TestUpdatePosting(t *testing.T) {
 		}, nil)
 
 	// Save 메서드 호출 시 성공 반환 설정
-	mockPostingRepo.EXPECT().
+	fixture.mockPostingRepo.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, posting *postings.Posting) error {
 			assert.Equal(t, 789, posting.ID)
@@ -409,14 +381,6 @@ func TestUpdatePosting(t *testing.T) {
 			assert.Equal(t, "Updated content", posting.Content)
 			return nil
 		})
-
-	// 서비스 생성
-	service, err := NewService(
-		WithCommentRepository(mockCommentRepo),
-		WithPostingRepository(mockPostingRepo),
-		WithAuthenticator(&authenticator.TestAuthenticator{}),
-	)
-	require.NoError(t, err)
 
 	// 테스트 요청 생성
 	req := &boardServer.UpdatePostingRequest{
@@ -431,7 +395,7 @@ func TestUpdatePosting(t *testing.T) {
 	ctx := createAuthContext()
 
 	// 메서드 호출
-	response, err := service.UpdatePosting(ctx, req)
+	response, err := fixture.service.UpdatePosting(ctx, req)
 
 	// 검증
 	assert.NoError(t, err)
@@ -443,19 +407,15 @@ func TestUpdatePosting(t *testing.T) {
 }
 
 func TestListPostings(t *testing.T) {
-	// gomock 컨트롤러 생성
-	ctrl := gomock.NewController(t)
-	defer ctrl.Finish()
-
-	// Mock 객체 생성
-	mockCommentRepo := mockComments.NewMockRepository(ctrl)
-	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	// 테스트 픽스처 생성
+	fixture := newTestFixture(t)
+	defer fixture.ctrl.Finish()
 
 	// 테스트용 시간
 	now := time.Now()
 
 	// FindAll 메서드 호출 시 게시물 목록 반환 설정
-	mockPostingRepo.EXPECT().
+	fixture.mockPostingRepo.EXPECT().
 		FindAll(gomock.Any(), gomock.Any()).
 		Return(&db.CursorBasedPaginationResponse[postings.Posting]{
 			Data: []postings.Posting{
@@ -483,14 +443,6 @@ func TestListPostings(t *testing.T) {
 			Total:      2,
 		}, nil)
 
-	// 서비스 생성
-	service, err := NewService(
-		WithCommentRepository(mockCommentRepo),
-		WithPostingRepository(mockPostingRepo),
-		WithAuthenticator(&authenticator.TestAuthenticator{}),
-	)
-	require.NoError(t, err)
-
 	// 테스트 요청 생성 - 페이지 토큰을 nil로 설정
 	req := &boardServer.ListPostingsRequest{
 		PageSize:  10,
@@ -501,11 +453,326 @@ func TestListPostings(t *testing.T) {
 	ctx := createAuthContext()
 
 	// 메서드 호출
-	response, err := service.ListPostings(ctx, req)
+	response, err := fixture.service.ListPostings(ctx, req)
 
 	// 검증
 	assert.NoError(t, err)
 	assert.NotNil(t, response)
 	assert.Equal(t, 2, len(response.Postings))
 	assert.Equal(t, int32(2), response.TotalCount)
+}
+
+// IP 주소가 있는 컨텍스트 생성 헬퍼 함수
+func createContextWithIP(ip string) context.Context {
+	ctx := context.Background()
+	md := metadata.New(map[string]string{
+		"x-forwarded-for": ip,
+	})
+	return metadata.NewIncomingContext(ctx, md)
+}
+
+func TestViewCountIncrement(t *testing.T) {
+	t.Run("같은 사용자가 같은 글을 두 번 읽을 때 조회수는 한 번만 증가", func(t *testing.T) {
+		// 테스트 픽스처 생성
+		fixture := newTestFixture(t)
+		defer fixture.ctrl.Finish()
+
+		postID := 789
+		userIP := "192.168.1.1"
+		cacheKey := "view:789:anon:192.168.1.1"
+		now := time.Now()
+
+		// 첫 번째 조회: 캐시에 없음 -> 조회수 증가
+		fixture.mockCache.EXPECT().
+			Exists(gomock.Any(), cacheKey).
+			Return(false, nil)
+
+		fixture.mockPostingRepo.EXPECT().
+			IncrementViewCount(gomock.Any(), postID).
+			Return(nil)
+
+		fixture.mockCache.EXPECT().
+			Set(gomock.Any(), cacheKey, gomock.Any(), gomock.Any()).
+			Return(nil)
+
+		// 게시물 정보 반환 설정
+		fixture.mockPostingRepo.EXPECT().
+			FindOneByID(gomock.Any(), postID).
+			Return(&postings.Posting{
+				ID:         postID,
+				Title:      "Test Posting",
+				Content:    "Test content",
+				AuthorID:   "test-user-id",
+				AuthorName: "Test User",
+				ViewCount:  1, // 이미 증가된 상태
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}, nil)
+
+		fixture.mockCommentRepo.EXPECT().
+			GetByPostID(gomock.Any(), int64(postID)).
+			Return([]comments.Comment{}, nil)
+
+		// 첫 번째 요청
+		ctx := createContextWithIP(userIP)
+		req := &boardServer.GetPostingRequest{PostingId: int64(postID)}
+		response1, err := fixture.service.GetPosting(ctx, req)
+
+		assert.NoError(t, err)
+		assert.Equal(t, int32(1), response1.ViewCount)
+
+		// 두 번째 조회: 캐시에 있음 -> 조회수 증가 안함
+		fixture.mockCache.EXPECT().
+			Exists(gomock.Any(), cacheKey).
+			Return(true, nil)
+
+		// 게시물 정보 반환 설정 (조회수는 여전히 1)
+		fixture.mockPostingRepo.EXPECT().
+			FindOneByID(gomock.Any(), postID).
+			Return(&postings.Posting{
+				ID:         postID,
+				Title:      "Test Posting",
+				Content:    "Test content",
+				AuthorID:   "test-user-id",
+				AuthorName: "Test User",
+				ViewCount:  1, // 증가하지 않음
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}, nil)
+
+		fixture.mockCommentRepo.EXPECT().
+			GetByPostID(gomock.Any(), int64(postID)).
+			Return([]comments.Comment{}, nil)
+
+		// 두 번째 요청
+		response2, err := fixture.service.GetPosting(ctx, req)
+
+		assert.NoError(t, err)
+		assert.Equal(t, int32(1), response2.ViewCount)
+	})
+
+	t.Run("다른 사용자가 같은 글을 읽을 때 조회수 증가", func(t *testing.T) {
+		// 테스트 픽스처 생성
+		fixture := newTestFixture(t)
+		defer fixture.ctrl.Finish()
+
+		postID := 789
+		userIP1 := "192.168.1.1"
+		userIP2 := "192.168.1.2"
+		cacheKey1 := "view:789:anon:192.168.1.1"
+		cacheKey2 := "view:789:anon:192.168.1.2"
+		now := time.Now()
+
+		// 첫 번째 사용자 조회: 캐시에 없음 -> 조회수 증가
+		fixture.mockCache.EXPECT().
+			Exists(gomock.Any(), cacheKey1).
+			Return(false, nil)
+
+		fixture.mockPostingRepo.EXPECT().
+			IncrementViewCount(gomock.Any(), postID).
+			Return(nil)
+
+		fixture.mockCache.EXPECT().
+			Set(gomock.Any(), cacheKey1, gomock.Any(), gomock.Any()).
+			Return(nil)
+
+		// 게시물 정보 반환 설정
+		fixture.mockPostingRepo.EXPECT().
+			FindOneByID(gomock.Any(), postID).
+			Return(&postings.Posting{
+				ID:         postID,
+				Title:      "Test Posting",
+				Content:    "Test content",
+				AuthorID:   "test-user-id",
+				AuthorName: "Test User",
+				ViewCount:  1, // 이미 증가된 상태
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}, nil)
+
+		fixture.mockCommentRepo.EXPECT().
+			GetByPostID(gomock.Any(), int64(postID)).
+			Return([]comments.Comment{}, nil)
+
+		// 첫 번째 사용자 요청
+		ctx1 := createContextWithIP(userIP1)
+		req := &boardServer.GetPostingRequest{PostingId: int64(postID)}
+		response1, err := fixture.service.GetPosting(ctx1, req)
+
+		assert.NoError(t, err)
+		assert.Equal(t, int32(1), response1.ViewCount)
+
+		// 두 번째 사용자 조회: 캐시에 없음 -> 조회수 증가
+		fixture.mockCache.EXPECT().
+			Exists(gomock.Any(), cacheKey2).
+			Return(false, nil)
+
+		fixture.mockPostingRepo.EXPECT().
+			IncrementViewCount(gomock.Any(), postID).
+			Return(nil)
+
+		fixture.mockCache.EXPECT().
+			Set(gomock.Any(), cacheKey2, gomock.Any(), gomock.Any()).
+			Return(nil)
+
+		// 게시물 정보 반환 설정 (조회수 2로 증가)
+		fixture.mockPostingRepo.EXPECT().
+			FindOneByID(gomock.Any(), postID).
+			Return(&postings.Posting{
+				ID:         postID,
+				Title:      "Test Posting",
+				Content:    "Test content",
+				AuthorID:   "test-user-id",
+				AuthorName: "Test User",
+				ViewCount:  2, // 증가함
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}, nil)
+
+		fixture.mockCommentRepo.EXPECT().
+			GetByPostID(gomock.Any(), int64(postID)).
+			Return([]comments.Comment{}, nil)
+
+		// 두 번째 사용자 요청
+		ctx2 := createContextWithIP(userIP2)
+		response2, err := fixture.service.GetPosting(ctx2, req)
+
+		assert.NoError(t, err)
+		assert.Equal(t, int32(2), response2.ViewCount)
+	})
+
+	t.Run("캐시 만료 후 같은 사용자가 다시 조회하면 조회수 증가", func(t *testing.T) {
+		// 테스트 픽스처 생성
+		fixture := newTestFixture(t)
+		defer fixture.ctrl.Finish()
+
+		postID := 789
+		userIP := "192.168.1.1"
+		cacheKey := "view:789:anon:192.168.1.1"
+		now := time.Now()
+
+		// 첫 번째 조회: 캐시에 없음 -> 조회수 증가
+		fixture.mockCache.EXPECT().
+			Exists(gomock.Any(), cacheKey).
+			Return(false, nil) // 캐시 만료됨
+
+		fixture.mockPostingRepo.EXPECT().
+			IncrementViewCount(gomock.Any(), postID).
+			Return(nil)
+
+		fixture.mockCache.EXPECT().
+			Set(gomock.Any(), cacheKey, gomock.Any(), gomock.Any()).
+			Return(nil)
+
+		// 게시물 정보 반환 설정
+		fixture.mockPostingRepo.EXPECT().
+			FindOneByID(gomock.Any(), postID).
+			Return(&postings.Posting{
+				ID:         postID,
+				Title:      "Test Posting",
+				Content:    "Test content",
+				AuthorID:   "test-user-id",
+				AuthorName: "Test User",
+				ViewCount:  2, // 이전에 조회된 상태
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}, nil)
+
+		fixture.mockCommentRepo.EXPECT().
+			GetByPostID(gomock.Any(), int64(postID)).
+			Return([]comments.Comment{}, nil)
+
+		// 요청
+		ctx := createContextWithIP(userIP)
+		req := &boardServer.GetPostingRequest{PostingId: int64(postID)}
+		response, err := fixture.service.GetPosting(ctx, req)
+
+		assert.NoError(t, err)
+		assert.Equal(t, int32(2), response.ViewCount)
+	})
+
+	t.Run("인증된 사용자의 조회수 증가", func(t *testing.T) {
+		// 테스트 픽스처 생성
+		fixture := newTestFixture(t)
+		defer fixture.ctrl.Finish()
+
+		postID := 789
+		cacheKey := "view:789:test-user-id"
+		now := time.Now()
+
+		// 인증된 사용자 조회: 캐시에 없음 -> 조회수 증가
+		fixture.mockCache.EXPECT().
+			Exists(gomock.Any(), cacheKey).
+			Return(false, nil)
+
+		fixture.mockPostingRepo.EXPECT().
+			IncrementViewCount(gomock.Any(), postID).
+			Return(nil)
+
+		fixture.mockCache.EXPECT().
+			Set(gomock.Any(), cacheKey, gomock.Any(), gomock.Any()).
+			Return(nil)
+
+		// 게시물 정보 반환 설정
+		fixture.mockPostingRepo.EXPECT().
+			FindOneByID(gomock.Any(), postID).
+			Return(&postings.Posting{
+				ID:         postID,
+				Title:      "Test Posting",
+				Content:    "Test content",
+				AuthorID:   "another-user",
+				AuthorName: "Another User",
+				ViewCount:  1,
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}, nil)
+
+		fixture.mockCommentRepo.EXPECT().
+			GetByPostID(gomock.Any(), int64(postID)).
+			Return([]comments.Comment{}, nil)
+
+		// 인증된 사용자 요청
+		ctx := createAuthContext()
+		req := &boardServer.GetPostingRequest{PostingId: int64(postID)}
+		response, err := fixture.service.GetPosting(ctx, req)
+
+		assert.NoError(t, err)
+		assert.Equal(t, int32(1), response.ViewCount)
+	})
+
+	t.Run("자신의 게시물 조회시 조회수 증가 방지", func(t *testing.T) {
+		// 테스트 픽스처 생성
+		fixture := newTestFixture(t)
+		defer fixture.ctrl.Finish()
+
+		postID := 789
+		userID := "test-user-id"
+		now := time.Now()
+
+		// 게시물 정보 반환 설정 (작성자 == 조회자)
+		fixture.mockPostingRepo.EXPECT().
+			FindOneByID(gomock.Any(), postID).
+			Return(&postings.Posting{
+				ID:         postID,
+				Title:      "Test Posting",
+				Content:    "Test content",
+				AuthorID:   userID, // 현재 사용자와 동일
+				AuthorName: "Test User",
+				ViewCount:  5, // 기존 조회수
+				CreatedAt:  now,
+				UpdatedAt:  now,
+			}, nil)
+
+		fixture.mockCommentRepo.EXPECT().
+			GetByPostID(gomock.Any(), int64(postID)).
+			Return([]comments.Comment{}, nil)
+
+		// 인증된 사용자 요청 (작성자와 동일)
+		ctx := createAuthContext()
+		req := &boardServer.GetPostingRequest{PostingId: int64(postID)}
+		response, err := fixture.service.GetPosting(ctx, req)
+
+		assert.NoError(t, err)
+		assert.Equal(t, int32(5), response.ViewCount) // 조회수 변경 없음
+	})
 }

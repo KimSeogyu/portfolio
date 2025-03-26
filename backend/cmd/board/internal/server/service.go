@@ -3,15 +3,19 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/comments"
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings"
+	"github.com/kimseogyu/portfolio/backend/internal/cache"
 	"github.com/kimseogyu/portfolio/backend/internal/db"
 	boardServer "github.com/kimseogyu/portfolio/backend/internal/proto/board/v1"
 	"github.com/kimseogyu/portfolio/backend/pkg/authenticator"
 	"github.com/kimseogyu/portfolio/backend/pkg/pagination"
+	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -23,6 +27,7 @@ type Service struct {
 	commentRepository comments.Repository
 	postingRepository postings.Repository
 	authenticator     authenticator.UserAuthenticator
+	cache             cache.Cache
 }
 
 // CreateComment implements boardv1.BoardServiceServer.
@@ -151,6 +156,43 @@ func (s *Service) DeletePosting(ctx context.Context, req *boardServer.DeletePost
 
 // GetPosting implements boardv1.BoardServiceServer.
 func (s *Service) GetPosting(ctx context.Context, req *boardServer.GetPostingRequest) (*boardServer.Posting, error) {
+	// 인증된 사용자 정보 가져오기 (익명 사용자도 허용)
+	var userID string
+	authUser, err := s.authenticator.FromGrpcContext(ctx)
+	if err == nil && authUser != nil {
+		userID = authUser.ID
+	} else {
+		// 익명 사용자의 경우 IP 주소 활용 (HTTP 헤더에서 가져오기)
+		md, ok := metadata.FromIncomingContext(ctx)
+		if ok {
+			if values := md.Get("x-forwarded-for"); len(values) > 0 {
+				userID = "anon:" + values[0]
+			} else if values := md.Get("x-real-ip"); len(values) > 0 {
+				userID = "anon:" + values[0]
+			}
+		}
+	}
+
+	// 캐시 키 생성 (Redis 또는 메모리 캐시 사용)
+	viewCountKey := fmt.Sprintf("viewcount:%d:%s", req.PostingId, userID)
+
+	// 캐시 확인
+	exists, err := s.cache.Exists(ctx, viewCountKey)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "failed to check cache: %v", err)
+	}
+
+	if !exists {
+		// 조회수 증가
+		if err := s.postingRepository.IncrementViewCount(ctx, int(req.PostingId)); err != nil {
+			zap.S().Errorf("failed to increment view count: %v", err)
+		}
+
+		// 캐시에 기록 (24시간 유효)
+		s.cache.Set(ctx, viewCountKey, "1", 24*time.Hour)
+	}
+
+	// 원래 코드: 게시글 조회
 	posting, err := s.postingRepository.FindOneByID(ctx, int(req.PostingId))
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to get posting: %v", err)
@@ -396,6 +438,12 @@ func WithAuthenticator(authenticator authenticator.UserAuthenticator) ServiceOpt
 	}
 }
 
+func WithCache(cache cache.Cache) ServiceOption {
+	return func(s *Service) {
+		s.cache = cache
+	}
+}
+
 func NewService(opts ...ServiceOption) (*Service, error) {
 	s := &Service{}
 	for _, opt := range opts {
@@ -412,6 +460,10 @@ func NewService(opts ...ServiceOption) (*Service, error) {
 
 	if s.authenticator == nil {
 		return nil, errors.New("authenticator is required")
+	}
+
+	if s.cache == nil {
+		return nil, errors.New("cache is required")
 	}
 
 	return s, nil

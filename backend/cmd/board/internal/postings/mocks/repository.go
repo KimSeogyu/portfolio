@@ -86,6 +86,20 @@ func (mr *MockRepositoryMockRecorder) FindOneByID(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindOneByID", reflect.TypeOf((*MockRepository)(nil).FindOneByID), ctx, id)
 }
 
+// IncrementViewCount mocks base method.
+func (m *MockRepository) IncrementViewCount(ctx context.Context, id int) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementViewCount", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// IncrementViewCount indicates an expected call of IncrementViewCount.
+func (mr *MockRepositoryMockRecorder) IncrementViewCount(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementViewCount", reflect.TypeOf((*MockRepository)(nil).IncrementViewCount), ctx, id)
+}
+
 // Save mocks base method.
 func (m *MockRepository) Save(ctx context.Context, data *postings.Posting) error {
 	m.ctrl.T.Helper()

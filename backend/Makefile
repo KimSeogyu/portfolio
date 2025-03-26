@@ -40,6 +40,7 @@ up:
 generate-mocks:
 	mockgen -source=cmd/board/internal/comments/repository.go -destination=cmd/board/internal/comments/mocks/repository.go
 	mockgen -source=cmd/board/internal/postings/repository.go -destination=cmd/board/internal/postings/mocks/repository.go
+	mockgen -source=internal/cache/cache.go -destination=internal/cache/mocks/cache.go
 
 down:
 	docker compose -f docker/docker-compose.yml down
