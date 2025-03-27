@@ -1,19 +1,36 @@
 services:
   board:
     image: portfolio/board:latest
-    command: ["runserver", "-c", "/app/configs/config.yaml"]
+    command: ["runserver", "-c", "/app/configs/board.config.yaml"]
     networks:
       - portfolio-backend-network
     ports:
       - "8080:8080"
       - "10010:10010"
     volumes:
-      - ../.config/config.yaml:/app/configs/config.yaml
+      - ../.config/board.config.yaml:/app/configs/board.config.yaml
     depends_on:
       portfolio-backend-db:
         condition: service_healthy
       portfolio-backend-redis-node-5:
         condition: service_healthy
+
+  auth:
+    image: portfolio/auth:latest
+    command: ["runserver", "-c", "/app/configs/auth.config.yaml"]
+    networks:
+      - portfolio-backend-network
+    ports:
+      - "8081:8081"
+      - "10011:10011"
+    volumes:
+      - ../.config/auth.config.yaml:/app/configs/auth.config.yaml
+    depends_on:
+      portfolio-backend-db:
+        condition: service_healthy
+      portfolio-backend-redis-node-5:
+        condition: service_healthy
+
   portfolio-backend-db:
     image: postgres:16-alpine
     environment:

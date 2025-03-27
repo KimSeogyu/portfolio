@@ -1,0 +1,7 @@
+FROM golang:1.24-alpine
+
+WORKDIR /app
+
+COPY ./build/linux/amd64/auth /usr/local/bin/auth
+
+ENTRYPOINT ["/usr/local/bin/auth"]

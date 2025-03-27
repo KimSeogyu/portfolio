@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/config"
+	"github.com/kimseogyu/portfolio/backend/cmd/auth/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -271,7 +271,7 @@ func init() {
 	initCmd.Flags().StringVarP(&dbName, "db-name", "n", "", "Database name")
 	initCmd.Flags().StringVarP(&dbSchema, "db-schema", "s", "public", "Database schema")
 	initCmd.Flags().IntVarP(&grpcPort, "grpc-port", "g", 0, "gRPC server port")
-	initCmd.Flags().StringVarP(&outputPath, "output", "o", ".config/board.config.yaml", "Output config file path")
+	initCmd.Flags().StringVarP(&outputPath, "output", "o", ".config/auth.config.yaml", "Output config file path")
 	initCmd.Flags().BoolVarP(&force, "force", "f", false, "Force overwrite of existing config file")
 	initCmd.Flags().BoolVarP(&interactive, "interactive", "i", false, "Run in interactive mode")
 }

@@ -1,9 +1,9 @@
 GOOS ?= linux
 GOARCH ?= amd64
 OUT_DIR = build
-APPLICATIONS = board
+APPLICATIONS = board auth
 
-.PHONY: build run clean test docker up down $(APPLICATIONS)
+.PHONY: build run clean test docker up down $(APPLICATIONS) init
 
 build: $(APPLICATIONS)
 
@@ -23,6 +23,10 @@ docker-image:
 
 run:
 	go run cmd/board/main.go
+
+init:
+	go run cmd/board/main.go init -f
+	go run cmd/auth/main.go init -f
 
 clean:
 	rm -rf build

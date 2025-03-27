@@ -28,6 +28,9 @@ backend-down:
 backend-generate-mocks:
 	@$(MAKE) -C backend generate-mocks
 
+backend-init:
+	@$(MAKE) -C backend init
+
 # Buf 관련 명령어들
 buf:
 	@$(MAKE) -C buf
