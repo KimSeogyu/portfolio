@@ -2,18 +2,20 @@ services:
   board:
     image: portfolio/board:latest
     command: ["runserver", "-c", "/app/configs/config.yaml"]
+    networks:
+      - portfolio-backend-network
     ports:
       - "8080:8080"
       - "10010:10010"
     volumes:
       - ../.config/config.yaml:/app/configs/config.yaml
     depends_on:
-      postgres:
+      portfolio-backend-db:
         condition: service_healthy
-  postgres:
+      portfolio-backend-redis-node-5:
+        condition: service_healthy
+  portfolio-backend-db:
     image: postgres:16-alpine
-    ports:
-      - "5432:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -24,4 +26,93 @@ services:
       timeout: 5s
       retries: 5
     volumes:
-      - ../volumes/postgres:/var/lib/postgresql/data
+      - ../data/postgres:/var/lib/postgresql/data
+    networks:
+      - portfolio-backend-network
+
+  portfolio-backend-redis-node-0:
+    image: docker.io/bitnami/redis-cluster:7.2
+    networks:
+      - portfolio-backend-network
+    volumes:
+      - ../data/redis-cluster_data-0:/bitnami/redis/data
+    environment:
+      - "ALLOW_EMPTY_PASSWORD=yes"
+      - "REDIS_NODES=portfolio-backend-redis-node-0 portfolio-backend-redis-node-1 portfolio-backend-redis-node-2 portfolio-backend-redis-node-3 portfolio-backend-redis-node-4 portfolio-backend-redis-node-5"
+
+  portfolio-backend-redis-node-1:
+    image: docker.io/bitnami/redis-cluster:7.2
+    networks:
+      - portfolio-backend-network
+    volumes:
+      - ../data/redis-cluster_data-1:/bitnami/redis/data
+    environment:
+      - "ALLOW_EMPTY_PASSWORD=yes"
+      - "REDIS_NODES=portfolio-backend-redis-node-0 portfolio-backend-redis-node-1 portfolio-backend-redis-node-2 portfolio-backend-redis-node-3 portfolio-backend-redis-node-4 portfolio-backend-redis-node-5"
+
+  portfolio-backend-redis-node-2:
+    image: docker.io/bitnami/redis-cluster:7.2
+    networks:
+      - portfolio-backend-network
+    volumes:
+      - ../data/redis-cluster_data-2:/bitnami/redis/data
+    environment:
+      - "ALLOW_EMPTY_PASSWORD=yes"
+      - "REDIS_NODES=portfolio-backend-redis-node-0 portfolio-backend-redis-node-1 portfolio-backend-redis-node-2 portfolio-backend-redis-node-3 portfolio-backend-redis-node-4 portfolio-backend-redis-node-5"
+
+  portfolio-backend-redis-node-3:
+    image: docker.io/bitnami/redis-cluster:7.2
+    networks:
+      - portfolio-backend-network
+    volumes:
+      - ../data/redis-cluster_data-3:/bitnami/redis/data
+    environment:
+      - "ALLOW_EMPTY_PASSWORD=yes"
+      - "REDIS_NODES=portfolio-backend-redis-node-0 portfolio-backend-redis-node-1 portfolio-backend-redis-node-2 portfolio-backend-redis-node-3 portfolio-backend-redis-node-4 portfolio-backend-redis-node-5"
+
+  portfolio-backend-redis-node-4:
+    image: docker.io/bitnami/redis-cluster:7.2
+    networks:
+      - portfolio-backend-network
+    volumes:
+      - ../data/redis-cluster_data-4:/bitnami/redis/data
+    environment:
+      - "ALLOW_EMPTY_PASSWORD=yes"
+      - "REDIS_NODES=portfolio-backend-redis-node-0 portfolio-backend-redis-node-1 portfolio-backend-redis-node-2 portfolio-backend-redis-node-3 portfolio-backend-redis-node-4 portfolio-backend-redis-node-5"
+
+  portfolio-backend-redis-node-5:
+    image: docker.io/bitnami/redis-cluster:7.2
+    networks:
+      - portfolio-backend-network
+    volumes:
+      - ../data/redis-cluster_data-5:/bitnami/redis/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "redis-cli",
+          "-h",
+          "localhost",
+          "-p",
+          "6379",
+          "-a",
+          "bitnami",
+          "ping",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      - portfolio-backend-redis-node-0
+      - portfolio-backend-redis-node-1
+      - portfolio-backend-redis-node-2
+      - portfolio-backend-redis-node-3
+      - portfolio-backend-redis-node-4
+    environment:
+      - "ALLOW_EMPTY_PASSWORD=yes"
+      - "REDIS_CLUSTER_REPLICAS=1"
+      - "REDIS_NODES=portfolio-backend-redis-node-0 portfolio-backend-redis-node-1 portfolio-backend-redis-node-2 portfolio-backend-redis-node-3 portfolio-backend-redis-node-4 portfolio-backend-redis-node-5"
+      - "REDIS_CLUSTER_CREATOR=yes"
+networks:
+  portfolio-backend-network:
+    driver: bridge

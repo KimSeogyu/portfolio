@@ -8,8 +8,9 @@ import (
 )
 
 type Config struct {
-	DBConfig   DBConfig
-	GRPCConfig GRPCConfig
+	DBConfig    DBConfig
+	GRPCConfig  GRPCConfig
+	CacheConfig CacheConfig
 }
 
 type DB struct {
@@ -24,6 +25,10 @@ type DB struct {
 type GRPCConfig struct {
 	GrpcPort    int
 	GatewayPort int
+}
+
+type CacheConfig struct {
+	RedisAddrs []string
 }
 
 type DBType string
@@ -100,6 +105,10 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	if len(c.CacheConfig.RedisAddrs) == 0 {
+		return errors.New("redis addrs is required")
+	}
+
 	return nil
 }
 
@@ -108,7 +117,7 @@ func Local() *Config {
 		DBConfig: DBConfig{
 			DBType: DBTypePostgres,
 			DB: DB{
-				Host:     "docker.for.mac.localhost",
+				Host:     "portfolio-backend-db",
 				Port:     5432,
 				User:     "postgres",
 				Password: "postgres",
@@ -119,6 +128,16 @@ func Local() *Config {
 		GRPCConfig: GRPCConfig{
 			GrpcPort:    10010,
 			GatewayPort: 8080,
+		},
+		CacheConfig: CacheConfig{
+			RedisAddrs: []string{
+				"portfolio-backend-redis-node-0:6379",
+				"portfolio-backend-redis-node-1:6379",
+				"portfolio-backend-redis-node-2:6379",
+				"portfolio-backend-redis-node-3:6379",
+				"portfolio-backend-redis-node-4:6379",
+				"portfolio-backend-redis-node-5:6379",
+			},
 		},
 	}
 }

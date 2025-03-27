@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/kimseogyu/portfolio/backend/internal/config"
+	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/config"
 	"github.com/spf13/cobra"
 )
 
@@ -167,6 +167,7 @@ In non-interactive mode, you can provide values via command line flags.`,
 					}
 				}
 			}
+
 		} else {
 			// Non-interactive mode: set default values if not provided
 			defaultConfig := config.Local()
@@ -215,6 +216,16 @@ In non-interactive mode, you can provide values via command line flags.`,
 			GRPCConfig: config.GRPCConfig{
 				GrpcPort:    grpcPort,
 				GatewayPort: gatewayPort,
+			},
+			CacheConfig: config.CacheConfig{
+				RedisAddrs: []string{
+					"portfolio-backend-redis-node-0:6379",
+					"portfolio-backend-redis-node-1:6379",
+					"portfolio-backend-redis-node-2:6379",
+					"portfolio-backend-redis-node-3:6379",
+					"portfolio-backend-redis-node-4:6379",
+					"portfolio-backend-redis-node-5:6379",
+				},
 			},
 		}
 

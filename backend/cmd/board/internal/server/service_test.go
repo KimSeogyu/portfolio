@@ -9,8 +9,9 @@ import (
 	mockComments "github.com/kimseogyu/portfolio/backend/cmd/board/internal/comments/mocks"
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings"
 	mockPostings "github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings/mocks"
-	mockCache "github.com/kimseogyu/portfolio/backend/internal/cache/mocks"
+	mockCStore "github.com/kimseogyu/portfolio/backend/internal/cstore/mocks"
 	"github.com/kimseogyu/portfolio/backend/internal/db"
+	mockDLockerFactory "github.com/kimseogyu/portfolio/backend/internal/dlock/mocks"
 	boardServer "github.com/kimseogyu/portfolio/backend/internal/proto/board/v1"
 	"github.com/kimseogyu/portfolio/backend/pkg/authenticator"
 	"github.com/stretchr/testify/assert"
@@ -25,7 +26,7 @@ type testFixture struct {
 	ctrl            *gomock.Controller
 	mockCommentRepo *mockComments.MockRepository
 	mockPostingRepo *mockPostings.MockRepository
-	mockCache       *mockCache.MockCache
+	mockCache       *mockCStore.MockCacheStore
 	service         *Service
 }
 
@@ -35,13 +36,15 @@ func newTestFixture(t *testing.T) *testFixture {
 
 	mockCommentRepo := mockComments.NewMockRepository(ctrl)
 	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
-	mockCache := mockCache.NewMockCache(ctrl)
+	mockCache := mockCStore.NewMockCacheStore(ctrl)
+	mockDLockerFactory := mockDLockerFactory.NewMockDLockerFactory(ctrl)
 
 	service, err := NewService(
 		WithCommentRepository(mockCommentRepo),
 		WithPostingRepository(mockPostingRepo),
 		WithAuthenticator(&authenticator.TestAuthenticator{}),
-		WithCache(mockCache),
+		WithCacheStore(mockCache),
+		WithDLockerFactory(mockDLockerFactory),
 	)
 	require.NoError(t, err)
 
@@ -376,7 +379,7 @@ func TestUpdatePosting(t *testing.T) {
 	fixture.mockPostingRepo.EXPECT().
 		Save(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(ctx context.Context, posting *postings.Posting) error {
-			assert.Equal(t, 789, posting.ID)
+			assert.Equal(t, int64(789), posting.ID)
 			assert.Equal(t, "Updated title", posting.Title)
 			assert.Equal(t, "Updated content", posting.Content)
 			return nil
@@ -467,19 +470,69 @@ func createContextWithIP(ip string) context.Context {
 	ctx := context.Background()
 	md := metadata.New(map[string]string{
 		"x-forwarded-for": ip,
+		"x-real-ip":       ip, // 실제 IP 주소도 추가
 	})
 	return metadata.NewIncomingContext(ctx, md)
 }
 
+// 익명 사용자용 모의 인증기
+type AnonymousAuthenticator struct{}
+
+func (a *AnonymousAuthenticator) FromGrpcContext(ctx context.Context) (*authenticator.AuthUser, error) {
+	// 컨텍스트에서 IP 주소 추출
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, nil
+	}
+
+	var ip string
+	if ips := md.Get("x-real-ip"); len(ips) > 0 {
+		ip = ips[0]
+	} else if ips := md.Get("x-forwarded-for"); len(ips) > 0 {
+		ip = ips[0]
+	} else {
+		ip = "127.0.0.1"
+	}
+
+	return &authenticator.AuthUser{ID: "anon:" + ip, Name: "Anonymous"}, nil
+}
+
+// 익명 사용자용 테스트 픽스처 생성
+func newAnonymousTestFixture(t *testing.T) *testFixture {
+	ctrl := gomock.NewController(t)
+
+	mockCommentRepo := mockComments.NewMockRepository(ctrl)
+	mockPostingRepo := mockPostings.NewMockRepository(ctrl)
+	mockCache := mockCStore.NewMockCacheStore(ctrl)
+	mockDLockerFactory := mockDLockerFactory.NewMockDLockerFactory(ctrl)
+
+	service, err := NewService(
+		WithCommentRepository(mockCommentRepo),
+		WithPostingRepository(mockPostingRepo),
+		WithAuthenticator(&AnonymousAuthenticator{}),
+		WithCacheStore(mockCache),
+		WithDLockerFactory(mockDLockerFactory),
+	)
+	require.NoError(t, err)
+
+	return &testFixture{
+		ctrl:            ctrl,
+		mockCommentRepo: mockCommentRepo,
+		mockPostingRepo: mockPostingRepo,
+		mockCache:       mockCache,
+		service:         service,
+	}
+}
+
 func TestViewCountIncrement(t *testing.T) {
 	t.Run("같은 사용자가 같은 글을 두 번 읽을 때 조회수는 한 번만 증가", func(t *testing.T) {
-		// 테스트 픽스처 생성
-		fixture := newTestFixture(t)
+		// 익명 사용자용 테스트 픽스처 생성
+		fixture := newAnonymousTestFixture(t)
 		defer fixture.ctrl.Finish()
 
-		postID := 789
+		postID := 789 // int64에서 int로 변경
 		userIP := "192.168.1.1"
-		cacheKey := "view:789:anon:192.168.1.1"
+		cacheKey := "viewcount:789:anon:192.168.1.1"
 		now := time.Now()
 
 		// 첫 번째 조회: 캐시에 없음 -> 조회수 증가
@@ -499,7 +552,7 @@ func TestViewCountIncrement(t *testing.T) {
 		fixture.mockPostingRepo.EXPECT().
 			FindOneByID(gomock.Any(), postID).
 			Return(&postings.Posting{
-				ID:         postID,
+				ID:         int64(postID),
 				Title:      "Test Posting",
 				Content:    "Test content",
 				AuthorID:   "test-user-id",
@@ -530,7 +583,7 @@ func TestViewCountIncrement(t *testing.T) {
 		fixture.mockPostingRepo.EXPECT().
 			FindOneByID(gomock.Any(), postID).
 			Return(&postings.Posting{
-				ID:         postID,
+				ID:         int64(postID),
 				Title:      "Test Posting",
 				Content:    "Test content",
 				AuthorID:   "test-user-id",
@@ -552,15 +605,15 @@ func TestViewCountIncrement(t *testing.T) {
 	})
 
 	t.Run("다른 사용자가 같은 글을 읽을 때 조회수 증가", func(t *testing.T) {
-		// 테스트 픽스처 생성
-		fixture := newTestFixture(t)
+		// 익명 사용자용 테스트 픽스처 생성
+		fixture := newAnonymousTestFixture(t)
 		defer fixture.ctrl.Finish()
 
-		postID := 789
+		postID := 789 // int64에서 int로 변경
 		userIP1 := "192.168.1.1"
 		userIP2 := "192.168.1.2"
-		cacheKey1 := "view:789:anon:192.168.1.1"
-		cacheKey2 := "view:789:anon:192.168.1.2"
+		cacheKey1 := "viewcount:789:anon:192.168.1.1"
+		cacheKey2 := "viewcount:789:anon:192.168.1.2"
 		now := time.Now()
 
 		// 첫 번째 사용자 조회: 캐시에 없음 -> 조회수 증가
@@ -580,7 +633,7 @@ func TestViewCountIncrement(t *testing.T) {
 		fixture.mockPostingRepo.EXPECT().
 			FindOneByID(gomock.Any(), postID).
 			Return(&postings.Posting{
-				ID:         postID,
+				ID:         int64(postID),
 				Title:      "Test Posting",
 				Content:    "Test content",
 				AuthorID:   "test-user-id",
@@ -619,7 +672,7 @@ func TestViewCountIncrement(t *testing.T) {
 		fixture.mockPostingRepo.EXPECT().
 			FindOneByID(gomock.Any(), postID).
 			Return(&postings.Posting{
-				ID:         postID,
+				ID:         int64(postID),
 				Title:      "Test Posting",
 				Content:    "Test content",
 				AuthorID:   "test-user-id",
@@ -642,13 +695,13 @@ func TestViewCountIncrement(t *testing.T) {
 	})
 
 	t.Run("캐시 만료 후 같은 사용자가 다시 조회하면 조회수 증가", func(t *testing.T) {
-		// 테스트 픽스처 생성
-		fixture := newTestFixture(t)
+		// 익명 사용자용 테스트 픽스처 생성
+		fixture := newAnonymousTestFixture(t)
 		defer fixture.ctrl.Finish()
 
-		postID := 789
+		postID := 789 // int64에서 int로 변경
 		userIP := "192.168.1.1"
-		cacheKey := "view:789:anon:192.168.1.1"
+		cacheKey := "viewcount:789:anon:192.168.1.1"
 		now := time.Now()
 
 		// 첫 번째 조회: 캐시에 없음 -> 조회수 증가
@@ -668,7 +721,7 @@ func TestViewCountIncrement(t *testing.T) {
 		fixture.mockPostingRepo.EXPECT().
 			FindOneByID(gomock.Any(), postID).
 			Return(&postings.Posting{
-				ID:         postID,
+				ID:         int64(postID),
 				Title:      "Test Posting",
 				Content:    "Test content",
 				AuthorID:   "test-user-id",
@@ -692,12 +745,12 @@ func TestViewCountIncrement(t *testing.T) {
 	})
 
 	t.Run("인증된 사용자의 조회수 증가", func(t *testing.T) {
-		// 테스트 픽스처 생성
+		// 테스트 픽스처 생성 (기본 인증기 사용)
 		fixture := newTestFixture(t)
 		defer fixture.ctrl.Finish()
 
-		postID := 789
-		cacheKey := "view:789:test-user-id"
+		postID := 789 // int64에서 int로 변경
+		cacheKey := "viewcount:789:test-user-id"
 		now := time.Now()
 
 		// 인증된 사용자 조회: 캐시에 없음 -> 조회수 증가
@@ -717,7 +770,7 @@ func TestViewCountIncrement(t *testing.T) {
 		fixture.mockPostingRepo.EXPECT().
 			FindOneByID(gomock.Any(), postID).
 			Return(&postings.Posting{
-				ID:         postID,
+				ID:         int64(postID),
 				Title:      "Test Posting",
 				Content:    "Test content",
 				AuthorID:   "another-user",
@@ -741,24 +794,33 @@ func TestViewCountIncrement(t *testing.T) {
 	})
 
 	t.Run("자신의 게시물 조회시 조회수 증가 방지", func(t *testing.T) {
-		// 테스트 픽스처 생성
+		// 테스트 픽스처 생성 (기본 인증기 사용)
 		fixture := newTestFixture(t)
-		defer fixture.ctrl.Finish()
 
-		postID := 789
+		t.Cleanup(func() {
+			fixture.ctrl.Finish()
+		})
+
+		postID := 789 // int64에서 int로 변경
 		userID := "test-user-id"
+		cacheKey := "viewcount:789:test-user-id"
 		now := time.Now()
 
-		// 게시물 정보 반환 설정 (작성자 == 조회자)
+		// 사용자의 게시물 조회: 캐시 검사
+		fixture.mockCache.EXPECT().
+			Exists(gomock.Any(), cacheKey).
+			Return(true, nil)
+
+		// 게시물 정보 반환 설정 (작성자 == 조회자이므로 조회수가 증가하지 않음)
 		fixture.mockPostingRepo.EXPECT().
 			FindOneByID(gomock.Any(), postID).
 			Return(&postings.Posting{
-				ID:         postID,
+				ID:         int64(postID),
 				Title:      "Test Posting",
 				Content:    "Test content",
 				AuthorID:   userID, // 현재 사용자와 동일
 				AuthorName: "Test User",
-				ViewCount:  5, // 기존 조회수
+				ViewCount:  5, // 기존 조회수 (서비스 코드에서 작성자와 동일한 경우 조회수를 롤백)
 				CreatedAt:  now,
 				UpdatedAt:  now,
 			}, nil)

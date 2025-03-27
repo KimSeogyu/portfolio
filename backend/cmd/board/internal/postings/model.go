@@ -7,7 +7,7 @@ import (
 )
 
 type Posting struct {
-	ID           int                       `json:"id" gorm:"primaryKey"`
+	ID           int64                     `json:"id" gorm:"primaryKey"`
 	Title        string                    `json:"title" gorm:"not null;size:200;unique"`
 	Content      string                    `json:"content" gorm:"not null;size:50000"`
 	AuthorID     string                    `json:"author_id" gorm:"not null"`

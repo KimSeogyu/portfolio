@@ -20,7 +20,17 @@ type AuthUser struct {
 func fromGrpcContext(ctx context.Context) (*AuthUser, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return nil, status.Errorf(codes.Unauthenticated, "no auth user in context")
+		var userID string
+		if values := md.Get("x-forwarded-for"); len(values) > 0 {
+			userID = "anon:" + values[0]
+		} else if values := md.Get("x-real-ip"); len(values) > 0 {
+			userID = "anon:" + values[0]
+		}
+		return &AuthUser{
+			ID:    userID,
+			Email: "",
+			Name:  userID,
+		}, nil
 	}
 
 	userID := md.Get("auth_user_id")

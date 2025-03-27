@@ -8,14 +8,14 @@ import (
 
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/comments"
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings"
-	"github.com/kimseogyu/portfolio/backend/internal/cache"
+	"github.com/kimseogyu/portfolio/backend/internal/cstore"
 	"github.com/kimseogyu/portfolio/backend/internal/db"
+	"github.com/kimseogyu/portfolio/backend/internal/dlock"
 	boardServer "github.com/kimseogyu/portfolio/backend/internal/proto/board/v1"
 	"github.com/kimseogyu/portfolio/backend/pkg/authenticator"
 	"github.com/kimseogyu/portfolio/backend/pkg/pagination"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -27,7 +27,8 @@ type Service struct {
 	commentRepository comments.Repository
 	postingRepository postings.Repository
 	authenticator     authenticator.UserAuthenticator
-	cache             cache.Cache
+	cacheStore        cstore.CacheStore
+	dlockerFactory    dlock.DLockerFactory
 }
 
 // CreateComment implements boardv1.BoardServiceServer.
@@ -42,14 +43,15 @@ func (s *Service) CreateComment(ctx context.Context, req *boardServer.CreateComm
 		parentID = &req.ParentId
 	}
 
+	now := time.Now()
 	comment := &comments.Comment{
 		PostID:     req.PostingId,
 		Content:    req.Content,
 		AuthorID:   authUser.ID,
 		AuthorName: authUser.Name,
 		ParentID:   parentID,
-		CreatedAt:  time.Now(),
-		UpdatedAt:  time.Now(),
+		CreatedAt:  now,
+		UpdatedAt:  now,
 	}
 
 	if err := s.commentRepository.Save(ctx, comment); err != nil {
@@ -57,7 +59,7 @@ func (s *Service) CreateComment(ctx context.Context, req *boardServer.CreateComm
 	}
 
 	depth := 0
-	if req.ParentId != 0 {
+	if comment.ParentID != nil {
 		depth = 1
 	}
 
@@ -82,11 +84,12 @@ func (s *Service) CreatePosting(ctx context.Context, req *boardServer.CreatePost
 		return nil, err
 	}
 
+	now := time.Now()
 	posting := postings.Posting{
 		Title:     req.Title,
 		Content:   req.Content,
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	if err := s.postingRepository.Save(ctx, &posting); err != nil {
@@ -157,27 +160,16 @@ func (s *Service) DeletePosting(ctx context.Context, req *boardServer.DeletePost
 // GetPosting implements boardv1.BoardServiceServer.
 func (s *Service) GetPosting(ctx context.Context, req *boardServer.GetPostingRequest) (*boardServer.Posting, error) {
 	// 인증된 사용자 정보 가져오기 (익명 사용자도 허용)
-	var userID string
 	authUser, err := s.authenticator.FromGrpcContext(ctx)
-	if err == nil && authUser != nil {
-		userID = authUser.ID
-	} else {
-		// 익명 사용자의 경우 IP 주소 활용 (HTTP 헤더에서 가져오기)
-		md, ok := metadata.FromIncomingContext(ctx)
-		if ok {
-			if values := md.Get("x-forwarded-for"); len(values) > 0 {
-				userID = "anon:" + values[0]
-			} else if values := md.Get("x-real-ip"); len(values) > 0 {
-				userID = "anon:" + values[0]
-			}
-		}
+	if err != nil {
+		return nil, err
 	}
 
 	// 캐시 키 생성 (Redis 또는 메모리 캐시 사용)
-	viewCountKey := fmt.Sprintf("viewcount:%d:%s", req.PostingId, userID)
+	viewCountKey := fmt.Sprintf("viewcount:%d:%s", req.PostingId, authUser.ID)
 
 	// 캐시 확인
-	exists, err := s.cache.Exists(ctx, viewCountKey)
+	exists, err := s.cacheStore.Exists(ctx, viewCountKey)
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "failed to check cache: %v", err)
 	}
@@ -189,7 +181,7 @@ func (s *Service) GetPosting(ctx context.Context, req *boardServer.GetPostingReq
 		}
 
 		// 캐시에 기록 (24시간 유효)
-		s.cache.Set(ctx, viewCountKey, "1", 24*time.Hour)
+		s.cacheStore.Set(ctx, viewCountKey, "1", 24*time.Hour)
 	}
 
 	// 원래 코드: 게시글 조회
@@ -411,11 +403,6 @@ func (s *Service) UpdatePosting(ctx context.Context, req *boardServer.UpdatePost
 	}, nil
 }
 
-// mustEmbedUnimplementedBoardServiceServer implements boardv1.BoardServiceServer.
-func (s *Service) mustEmbedUnimplementedBoardServiceServer() {
-	panic("unimplemented")
-}
-
 var _ boardServer.BoardServiceServer = &Service{}
 
 type ServiceOption func(*Service)
@@ -438,9 +425,15 @@ func WithAuthenticator(authenticator authenticator.UserAuthenticator) ServiceOpt
 	}
 }
 
-func WithCache(cache cache.Cache) ServiceOption {
+func WithCacheStore(cache cstore.CacheStore) ServiceOption {
 	return func(s *Service) {
-		s.cache = cache
+		s.cacheStore = cache
+	}
+}
+
+func WithDLockerFactory(dlockerFactory dlock.DLockerFactory) ServiceOption {
+	return func(s *Service) {
+		s.dlockerFactory = dlockerFactory
 	}
 }
 
@@ -462,8 +455,12 @@ func NewService(opts ...ServiceOption) (*Service, error) {
 		return nil, errors.New("authenticator is required")
 	}
 
-	if s.cache == nil {
+	if s.cacheStore == nil {
 		return nil, errors.New("cache is required")
+	}
+
+	if s.dlockerFactory == nil {
+		return nil, errors.New("dlockerFactory is required")
 	}
 
 	return s, nil

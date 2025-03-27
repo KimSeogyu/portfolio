@@ -9,12 +9,15 @@ import (
 	"syscall"
 
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/comments"
+	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/config"
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings"
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/server"
-	"github.com/kimseogyu/portfolio/backend/internal/config"
+	"github.com/kimseogyu/portfolio/backend/internal/cstore"
 	"github.com/kimseogyu/portfolio/backend/internal/db"
+	"github.com/kimseogyu/portfolio/backend/internal/dlock"
 	"github.com/kimseogyu/portfolio/backend/internal/grpcutils"
 	boardServer "github.com/kimseogyu/portfolio/backend/internal/proto/board/v1"
+	"github.com/kimseogyu/portfolio/backend/internal/redisutils"
 	"github.com/kimseogyu/portfolio/backend/pkg/authenticator"
 	"github.com/spf13/cobra"
 	"go.uber.org/zap"
@@ -40,24 +43,28 @@ var runserverCmd = &cobra.Command{
 
 		zap.S().Infof("Config file path: %s", configPath)
 
-		config, err := config.NewConfigFromFile(configPath)
+		cfg, err := config.NewConfigFromFile(configPath)
 		if err != nil {
 			zap.S().Fatalf("Failed to read config file: %v", err)
 		}
 
-		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", config.GRPCConfig.GrpcPort))
+		if err := cfg.Validate(); err != nil {
+			zap.S().Fatalf("Failed to validate config: %v", err)
+		}
+
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.GRPCConfig.GrpcPort))
 		if err != nil {
 			zap.S().Fatalf("Failed to listen: %v", err)
 		}
 
 		db, err := db.NewDB(
-			db.WithDBType(db.DBType(config.DBConfig.DBType)),
+			db.WithDBType(db.DBType(cfg.DBConfig.DBType)),
 			db.WithPostgresOptions(
-				db.WithHost(config.DBConfig.DB.Host),
-				db.WithPort(config.DBConfig.DB.Port),
-				db.WithUser(config.DBConfig.DB.User),
-				db.WithPassword(config.DBConfig.DB.Password),
-				db.WithDBName(config.DBConfig.DB.DBName),
+				db.WithHost(cfg.DBConfig.DB.Host),
+				db.WithPort(cfg.DBConfig.DB.Port),
+				db.WithUser(cfg.DBConfig.DB.User),
+				db.WithPassword(cfg.DBConfig.DB.Password),
+				db.WithDBName(cfg.DBConfig.DB.DBName),
 			),
 		)
 		if err != nil {
@@ -65,6 +72,14 @@ var runserverCmd = &cobra.Command{
 		}
 
 		db.AutoMigrate(&postings.Posting{}, &comments.Comment{})
+
+		redisClient, err := redisutils.NewRedisClient(ctx, cfg.CacheConfig.RedisAddrs...)
+		if err != nil {
+			zap.S().Fatalf("Failed to create redis client: %v", err)
+		}
+
+		cacheStore := cstore.NewCacheStore(redisClient)
+		dlockerFactory := dlock.NewDLockerFactory(redisClient)
 
 		postingRepo := postings.NewRepository(db)
 		commentRepo := comments.NewRepository(db)
@@ -74,6 +89,8 @@ var runserverCmd = &cobra.Command{
 			server.WithCommentRepository(commentRepo),
 			server.WithPostingRepository(postingRepo),
 			server.WithAuthenticator(authenticator),
+			server.WithCacheStore(cacheStore),
+			server.WithDLockerFactory(dlockerFactory),
 		)
 		if err != nil {
 			zap.S().Fatalf("Failed to create service: %v", err)
@@ -89,17 +106,17 @@ var runserverCmd = &cobra.Command{
 			zap.S().Fatalf("Failed to create grpc server: %v", err)
 		}
 
-		grpcGatewayUtil, err := server.NewGrpcGatewayUtil(service, true, config.GRPCConfig.GrpcPort, config.GRPCConfig.GatewayPort)
+		grpcGatewayUtil, err := server.NewGrpcGatewayUtil(service, true, cfg.GRPCConfig.GrpcPort, cfg.GRPCConfig.GatewayPort)
 		if err != nil {
 			zap.S().Fatalf("Failed to create grpc gateway util: %v", err)
 		}
 		go grpcGatewayUtil.Start(ctx)
-		zap.S().Infof("Gateway started on port %d", config.GRPCConfig.GatewayPort)
+		zap.S().Infof("Gateway started on port %d", cfg.GRPCConfig.GatewayPort)
 		defer grpcGatewayUtil.Stop(ctx)
 
 		go grpcServer.Start(ctx)
 		defer grpcServer.Stop(ctx)
-		zap.S().Infof("Server started on port %d", config.GRPCConfig.GrpcPort)
+		zap.S().Infof("Server started on port %d", cfg.GRPCConfig.GrpcPort)
 
 		signalChan := make(chan os.Signal, 1)
 		signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM, syscall.SIGINT, syscall.SIGQUIT, syscall.SIGKILL, syscall.SIGABRT)
