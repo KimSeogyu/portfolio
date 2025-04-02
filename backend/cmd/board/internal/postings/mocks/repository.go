@@ -42,8 +42,22 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 	return m.recorder
 }
 
+// DecrementCommentCount mocks base method.
+func (m *MockRepository) DecrementCommentCount(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DecrementCommentCount", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DecrementCommentCount indicates an expected call of DecrementCommentCount.
+func (mr *MockRepositoryMockRecorder) DecrementCommentCount(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DecrementCommentCount", reflect.TypeOf((*MockRepository)(nil).DecrementCommentCount), ctx, id)
+}
+
 // Delete mocks base method.
-func (m *MockRepository) Delete(ctx context.Context, id int) error {
+func (m *MockRepository) Delete(ctx context.Context, id int64) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Delete", ctx, id)
 	ret0, _ := ret[0].(error)
@@ -72,7 +86,7 @@ func (mr *MockRepositoryMockRecorder) FindAll(ctx, pagination any) *gomock.Call 
 }
 
 // FindOneByID mocks base method.
-func (m *MockRepository) FindOneByID(ctx context.Context, id int) (*postings.Posting, error) {
+func (m *MockRepository) FindOneByID(ctx context.Context, id int64) (*postings.Posting, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "FindOneByID", ctx, id)
 	ret0, _ := ret[0].(*postings.Posting)
@@ -86,8 +100,22 @@ func (mr *MockRepositoryMockRecorder) FindOneByID(ctx, id any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "FindOneByID", reflect.TypeOf((*MockRepository)(nil).FindOneByID), ctx, id)
 }
 
+// IncrementCommentCount mocks base method.
+func (m *MockRepository) IncrementCommentCount(ctx context.Context, id int64) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IncrementCommentCount", ctx, id)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// IncrementCommentCount indicates an expected call of IncrementCommentCount.
+func (mr *MockRepositoryMockRecorder) IncrementCommentCount(ctx, id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IncrementCommentCount", reflect.TypeOf((*MockRepository)(nil).IncrementCommentCount), ctx, id)
+}
+
 // IncrementViewCount mocks base method.
-func (m *MockRepository) IncrementViewCount(ctx context.Context, id int) error {
+func (m *MockRepository) IncrementViewCount(ctx context.Context, id int64) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "IncrementViewCount", ctx, id)
 	ret0, _ := ret[0].(error)
@@ -115,7 +143,7 @@ func (mr *MockRepositoryMockRecorder) Save(ctx, data any) *gomock.Call {
 }
 
 // Update mocks base method.
-func (m *MockRepository) Update(ctx context.Context, id int, data postings.Posting) error {
+func (m *MockRepository) Update(ctx context.Context, id int64, data postings.Posting) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Update", ctx, id, data)
 	ret0, _ := ret[0].(error)

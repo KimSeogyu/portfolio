@@ -58,5 +58,6 @@ generate-mocks:
 	mockgen -source=cmd/board/internal/postings/repository.go -destination=cmd/board/internal/postings/mocks/repository.go
 	mockgen -source=internal/cstore/cstore.go -destination=internal/cstore/mocks/cstore.go
 	mockgen -source=internal/dlock/dlock.go -destination=internal/dlock/mocks/dlock.go
+	mockgen -source=cmd/board/internal/viewcount/viewcount.go -destination=cmd/board/internal/viewcount/mocks/viewcount.go
 down:
 	docker compose -f docker/docker-compose.yml down

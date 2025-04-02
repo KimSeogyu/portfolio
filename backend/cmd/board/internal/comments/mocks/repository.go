@@ -42,32 +42,32 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 }
 
 // Delete mocks base method.
-func (m *MockRepository) Delete(ctx context.Context, id int64) error {
+func (m *MockRepository) Delete(ctx context.Context, comment_id int64) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Delete", ctx, id)
+	ret := m.ctrl.Call(m, "Delete", ctx, comment_id)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // Delete indicates an expected call of Delete.
-func (mr *MockRepositoryMockRecorder) Delete(ctx, id any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) Delete(ctx, comment_id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockRepository)(nil).Delete), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Delete", reflect.TypeOf((*MockRepository)(nil).Delete), ctx, comment_id)
 }
 
 // GetByID mocks base method.
-func (m *MockRepository) GetByID(ctx context.Context, id int64) (*comments.Comment, error) {
+func (m *MockRepository) GetByID(ctx context.Context, comment_id int64) (*comments.Comment, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetByID", ctx, id)
+	ret := m.ctrl.Call(m, "GetByID", ctx, comment_id)
 	ret0, _ := ret[0].(*comments.Comment)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetByID indicates an expected call of GetByID.
-func (mr *MockRepositoryMockRecorder) GetByID(ctx, id any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) GetByID(ctx, comment_id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockRepository)(nil).GetByID), ctx, id)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetByID", reflect.TypeOf((*MockRepository)(nil).GetByID), ctx, comment_id)
 }
 
 // GetByPostID mocks base method.
@@ -86,33 +86,33 @@ func (mr *MockRepositoryMockRecorder) GetByPostID(ctx, postID any) *gomock.Call 
 }
 
 // GetChildComments mocks base method.
-func (m *MockRepository) GetChildComments(ctx context.Context, postID, parentID int64, page, pageSize int) ([]comments.Comment, error) {
+func (m *MockRepository) GetChildComments(ctx context.Context, postID, parentID int64) ([]comments.Comment, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetChildComments", ctx, postID, parentID, page, pageSize)
+	ret := m.ctrl.Call(m, "GetChildComments", ctx, postID, parentID)
 	ret0, _ := ret[0].([]comments.Comment)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetChildComments indicates an expected call of GetChildComments.
-func (mr *MockRepositoryMockRecorder) GetChildComments(ctx, postID, parentID, page, pageSize any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) GetChildComments(ctx, postID, parentID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetChildComments", reflect.TypeOf((*MockRepository)(nil).GetChildComments), ctx, postID, parentID, page, pageSize)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetChildComments", reflect.TypeOf((*MockRepository)(nil).GetChildComments), ctx, postID, parentID)
 }
 
 // GetThread mocks base method.
-func (m *MockRepository) GetThread(ctx context.Context, postID int64, page, pageSize int) ([]comments.Comment, error) {
+func (m *MockRepository) GetThread(ctx context.Context, postID int64) ([]comments.Comment, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "GetThread", ctx, postID, page, pageSize)
+	ret := m.ctrl.Call(m, "GetThread", ctx, postID)
 	ret0, _ := ret[0].([]comments.Comment)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // GetThread indicates an expected call of GetThread.
-func (mr *MockRepositoryMockRecorder) GetThread(ctx, postID, page, pageSize any) *gomock.Call {
+func (mr *MockRepositoryMockRecorder) GetThread(ctx, postID any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetThread", reflect.TypeOf((*MockRepository)(nil).GetThread), ctx, postID, page, pageSize)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetThread", reflect.TypeOf((*MockRepository)(nil).GetThread), ctx, postID)
 }
 
 // Save mocks base method.
@@ -127,18 +127,4 @@ func (m *MockRepository) Save(ctx context.Context, comment *comments.Comment) er
 func (mr *MockRepositoryMockRecorder) Save(ctx, comment any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Save", reflect.TypeOf((*MockRepository)(nil).Save), ctx, comment)
-}
-
-// UpdatePostingCommentCount mocks base method.
-func (m *MockRepository) UpdatePostingCommentCount(ctx context.Context, postID int64) error {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "UpdatePostingCommentCount", ctx, postID)
-	ret0, _ := ret[0].(error)
-	return ret0
-}
-
-// UpdatePostingCommentCount indicates an expected call of UpdatePostingCommentCount.
-func (mr *MockRepositoryMockRecorder) UpdatePostingCommentCount(ctx, postID any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdatePostingCommentCount", reflect.TypeOf((*MockRepository)(nil).UpdatePostingCommentCount), ctx, postID)
 }

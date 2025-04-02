@@ -284,7 +284,6 @@ paths:
             description: |-
                 ListCommentsByPosting은 특정 게시물에 달린 모든 댓글을 조회합니다.
                  페이지네이션을 지원하며, 정렬 방향을 지정할 수 있습니다.
-                 대댓글 구조는 parent_id와 depth 필드를 통해 확인할 수 있습니다.
             operationId: BoardService_ListCommentsByPosting
             parameters:
                 - name: postingId
@@ -457,13 +456,13 @@ components:
                     type: string
                     description: 댓글 최종 수정 시간
                     format: date-time
+                deletedAt:
+                    type: string
+                    description: 댓글 삭제 시간
+                    format: date-time
                 parentId:
                     type: string
                     description: 대댓글인 경우 부모 댓글의 ID (최상위 댓글인 경우 0)
-                depth:
-                    type: integer
-                    description: '댓글 깊이 (최상위 댓글: 0, 대댓글: 1 이상)'
-                    format: int32
                 status:
                     type: integer
                     description: 댓글의 현재 상태
@@ -577,6 +576,10 @@ components:
                 updatedAt:
                     type: string
                     description: 게시물 최종 수정 시간
+                    format: date-time
+                deletedAt:
+                    type: string
+                    description: 게시물 삭제 시간
                     format: date-time
                 viewCount:
                     type: integer

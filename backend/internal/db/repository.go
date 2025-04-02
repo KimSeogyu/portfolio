@@ -2,7 +2,7 @@ package db
 
 type CursorBasedPagination struct {
 	Cursor *int64 `json:"cursor"`
-	Limit  *int64 `json:"limit"`
+	Limit  *int   `json:"limit"`
 }
 
 type CursorBasedPaginationResponse[T any] struct {

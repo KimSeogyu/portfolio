@@ -12,6 +12,7 @@ import (
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/config"
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings"
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/server"
+	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/viewcount"
 	"github.com/kimseogyu/portfolio/backend/internal/cstore"
 	"github.com/kimseogyu/portfolio/backend/internal/db"
 	"github.com/kimseogyu/portfolio/backend/internal/dlock"
@@ -81,9 +82,16 @@ var runserverCmd = &cobra.Command{
 		cacheStore := cstore.NewCacheStore(redisClient)
 		dlockerFactory := dlock.NewDLockerFactory(redisClient)
 
-		postingRepo := postings.NewRepository(db)
-		commentRepo := comments.NewRepository(db)
+		postingRepo := postings.NewRepository(db, cacheStore)
+		commentRepo := comments.NewRepository(db, cacheStore)
 		authenticator := authenticator.NewRealAuthenticator()
+		viewCountManager, err := viewcount.NewViewCountManager(
+			viewcount.WithCacheStore(cacheStore),
+			viewcount.WithPostingRepository(postingRepo),
+		)
+		if err != nil {
+			zap.S().Fatalf("Failed to create view count manager: %v", err)
+		}
 
 		service, err := server.NewService(
 			server.WithCommentRepository(commentRepo),
@@ -91,6 +99,7 @@ var runserverCmd = &cobra.Command{
 			server.WithAuthenticator(authenticator),
 			server.WithCacheStore(cacheStore),
 			server.WithDLockerFactory(dlockerFactory),
+			server.WithViewCountManager(viewCountManager),
 		)
 		if err != nil {
 			zap.S().Fatalf("Failed to create service: %v", err)

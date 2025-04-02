@@ -78,7 +78,6 @@ type BoardServiceClient interface {
 	ListPostings(ctx context.Context, in *ListPostingsRequest, opts ...grpc.CallOption) (*ListPostingsResponse, error)
 	// ListCommentsByPosting은 특정 게시물에 달린 모든 댓글을 조회합니다.
 	// 페이지네이션을 지원하며, 정렬 방향을 지정할 수 있습니다.
-	// 대댓글 구조는 parent_id와 depth 필드를 통해 확인할 수 있습니다.
 	ListCommentsByPosting(ctx context.Context, in *ListCommentsByPostingRequest, opts ...grpc.CallOption) (*ListCommentsResponse, error)
 	// CreateComment는 특정 게시물에 새 댓글을 작성합니다.
 	// parent_id 필드를 통해 대댓글 작성이 가능합니다.
@@ -261,7 +260,6 @@ type BoardServiceServer interface {
 	ListPostings(context.Context, *ListPostingsRequest) (*ListPostingsResponse, error)
 	// ListCommentsByPosting은 특정 게시물에 달린 모든 댓글을 조회합니다.
 	// 페이지네이션을 지원하며, 정렬 방향을 지정할 수 있습니다.
-	// 대댓글 구조는 parent_id와 depth 필드를 통해 확인할 수 있습니다.
 	ListCommentsByPosting(context.Context, *ListCommentsByPostingRequest) (*ListCommentsResponse, error)
 	// CreateComment는 특정 게시물에 새 댓글을 작성합니다.
 	// parent_id 필드를 통해 대댓글 작성이 가능합니다.

@@ -3,18 +3,18 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/comments"
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings"
+	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/utils"
+	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/viewcount"
 	"github.com/kimseogyu/portfolio/backend/internal/cstore"
 	"github.com/kimseogyu/portfolio/backend/internal/db"
 	"github.com/kimseogyu/portfolio/backend/internal/dlock"
 	boardServer "github.com/kimseogyu/portfolio/backend/internal/proto/board/v1"
 	"github.com/kimseogyu/portfolio/backend/pkg/authenticator"
 	"github.com/kimseogyu/portfolio/backend/pkg/pagination"
-	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/emptypb"
@@ -29,6 +29,7 @@ type Service struct {
 	authenticator     authenticator.UserAuthenticator
 	cacheStore        cstore.CacheStore
 	dlockerFactory    dlock.DLockerFactory
+	viewCountManager  viewcount.ViewCountManager
 }
 
 // CreateComment implements boardv1.BoardServiceServer.
@@ -38,43 +39,23 @@ func (s *Service) CreateComment(ctx context.Context, req *boardServer.CreateComm
 		return nil, err
 	}
 
-	var parentID *int64
-	if req.ParentId != 0 {
-		parentID = &req.ParentId
-	}
-
 	now := time.Now()
-	comment := &comments.Comment{
-		PostID:     req.PostingId,
+	comment := utils.ProtoToComment(&boardServer.Comment{
+		PostingId:  req.PostingId,
 		Content:    req.Content,
-		AuthorID:   authUser.ID,
-		AuthorName: authUser.Name,
-		ParentID:   parentID,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-	}
-
-	if err := s.commentRepository.Save(ctx, comment); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create comment: %v", err)
-	}
-
-	depth := 0
-	if comment.ParentID != nil {
-		depth = 1
-	}
-
-	return &boardServer.Comment{
-		CommentId:  comment.ID,
-		PostingId:  comment.PostID,
-		Content:    comment.Content,
 		AuthorId:   authUser.ID,
 		AuthorName: authUser.Name,
-		CreatedAt:  timestamppb.New(comment.CreatedAt),
-		UpdatedAt:  timestamppb.New(comment.UpdatedAt),
 		ParentId:   req.ParentId,
-		Depth:      int32(depth),
+		CreatedAt:  timestamppb.New(now),
+		UpdatedAt:  timestamppb.New(now),
 		Status:     boardServer.CommentStatus_COMMENT_STATUS_PUBLISHED,
-	}, nil
+	})
+
+	if err := s.commentRepository.Save(ctx, comment); err != nil {
+		return nil, status.Errorf(codes.Internal, "commentRepository.Save: %v", err)
+	}
+
+	return utils.CommentToProto(comment), nil
 }
 
 // CreatePosting implements boardv1.BoardServiceServer.
@@ -85,30 +66,24 @@ func (s *Service) CreatePosting(ctx context.Context, req *boardServer.CreatePost
 	}
 
 	now := time.Now()
-	posting := postings.Posting{
-		Title:     req.Title,
-		Content:   req.Content,
-		CreatedAt: now,
-		UpdatedAt: now,
+	posting := utils.ProtoToPosting(&boardServer.Posting{
+		Title:      req.Title,
+		Content:    req.Content,
+		AuthorId:   authUser.ID,
+		AuthorName: authUser.Name,
+		CreatedAt:  timestamppb.New(now),
+		UpdatedAt:  timestamppb.New(now),
+		DeletedAt:  nil,
+		Tags:       req.Tags,
+		Status:     req.Status,
+		Comments:   nil,
+	})
+
+	if err := s.postingRepository.Save(ctx, posting); err != nil {
+		return nil, status.Errorf(codes.Internal, "postingRepository.Save: %v", err)
 	}
 
-	if err := s.postingRepository.Save(ctx, &posting); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to create posting: %v", err)
-	}
-
-	return &boardServer.Posting{
-		PostingId:    int64(posting.ID),
-		Title:        posting.Title,
-		Content:      posting.Content,
-		AuthorId:     authUser.ID,
-		AuthorName:   authUser.Name,
-		CreatedAt:    timestamppb.New(posting.CreatedAt),
-		UpdatedAt:    timestamppb.New(posting.UpdatedAt),
-		ViewCount:    int32(posting.ViewCount),
-		CommentCount: int32(posting.CommentCount),
-		Tags:         posting.Tags,
-		Status:       boardServer.PostingStatus_POSTING_STATUS_PUBLISHED,
-	}, nil
+	return utils.PostingToProto(posting), nil
 }
 
 // DeleteComment implements boardv1.BoardServiceServer.
@@ -120,7 +95,7 @@ func (s *Service) DeleteComment(ctx context.Context, req *boardServer.DeleteComm
 
 	comment, err := s.commentRepository.GetByID(ctx, req.CommentId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get comment: %v", err)
+		return nil, status.Errorf(codes.Internal, "commentRepository.GetByID: %v", err)
 	}
 
 	if comment.AuthorID != authUser.ID {
@@ -128,7 +103,7 @@ func (s *Service) DeleteComment(ctx context.Context, req *boardServer.DeleteComm
 	}
 
 	if err := s.commentRepository.Delete(ctx, req.CommentId); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to delete comment: %v", err)
+		return nil, status.Errorf(codes.Internal, "commentRepository.Delete: %v", err)
 	}
 
 	return &emptypb.Empty{}, nil
@@ -141,17 +116,17 @@ func (s *Service) DeletePosting(ctx context.Context, req *boardServer.DeletePost
 		return nil, err
 	}
 
-	posting, err := s.postingRepository.FindOneByID(ctx, int(req.PostingId))
+	posting, err := s.postingRepository.FindOneByID(ctx, req.PostingId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get posting: %v", err)
+		return nil, status.Errorf(codes.Internal, "postingRepository.FindOneByID: %v", err)
 	}
 
 	if posting.AuthorID != authUser.ID {
 		return nil, status.Errorf(codes.PermissionDenied, "you are not allowed to delete this posting")
 	}
 
-	if err := s.postingRepository.Delete(ctx, int(req.PostingId)); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to delete posting: %v", err)
+	if err := s.postingRepository.Delete(ctx, req.PostingId); err != nil {
+		return nil, status.Errorf(codes.Internal, "postingRepository.Delete: %v", err)
 	}
 
 	return &emptypb.Empty{}, nil
@@ -162,105 +137,46 @@ func (s *Service) GetPosting(ctx context.Context, req *boardServer.GetPostingReq
 	// 인증된 사용자 정보 가져오기 (익명 사용자도 허용)
 	authUser, err := s.authenticator.FromGrpcContext(ctx)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "authenticator.FromGrpcContext: %v", err)
 	}
 
-	// 캐시 키 생성 (Redis 또는 메모리 캐시 사용)
-	viewCountKey := fmt.Sprintf("viewcount:%d:%s", req.PostingId, authUser.ID)
-
-	// 캐시 확인
-	exists, err := s.cacheStore.Exists(ctx, viewCountKey)
+	posting, err := s.postingRepository.FindOneByID(ctx, req.PostingId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to check cache: %v", err)
+		return nil, status.Errorf(codes.Internal, "postingRepository.FindOneByID: %v", err)
 	}
 
-	if !exists {
-		// 조회수 증가
-		if err := s.postingRepository.IncrementViewCount(ctx, int(req.PostingId)); err != nil {
-			zap.S().Errorf("failed to increment view count: %v", err)
-		}
-
-		// 캐시에 기록 (24시간 유효)
-		s.cacheStore.Set(ctx, viewCountKey, "1", 24*time.Hour)
+	if err := s.viewCountManager.CheckAndIncrement(ctx, posting.ID, posting.AuthorID, authUser.ID); err != nil {
+		return nil, status.Errorf(codes.Internal, "viewCountManager.CheckAndIncrement: %v", err)
 	}
 
-	// 원래 코드: 게시글 조회
-	posting, err := s.postingRepository.FindOneByID(ctx, int(req.PostingId))
+	comments, err := s.commentRepository.GetByPostID(ctx, req.PostingId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get posting: %v", err)
-	}
-
-	comments, err := s.commentRepository.GetByPostID(ctx, int64(req.PostingId))
-	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get comments: %v", err)
+		return nil, status.Errorf(codes.Internal, "commentRepository.GetByPostID: %v", err)
 	}
 
 	boardComments := make([]*boardServer.Comment, len(comments))
 	for i, comment := range comments {
-		depth := 0
-		if comment.ParentID != nil {
-			depth = 1
-		}
-		parentID := int64(0)
-		if comment.ParentID != nil {
-			parentID = *comment.ParentID
-		}
-		boardComments[i] = &boardServer.Comment{
-			CommentId:  comment.ID,
-			PostingId:  comment.PostID,
-			Content:    comment.Content,
-			AuthorId:   comment.AuthorID,
-			AuthorName: comment.AuthorName,
-			CreatedAt:  timestamppb.New(comment.CreatedAt),
-			UpdatedAt:  timestamppb.New(comment.UpdatedAt),
-			ParentId:   parentID,
-			Depth:      int32(depth),
-			Status:     comment.Status,
-		}
+		boardComments[i] = utils.CommentToProto(&comment)
 	}
 
-	return &boardServer.Posting{
-		PostingId:    int64(posting.ID),
-		Title:        posting.Title,
-		Content:      posting.Content,
-		AuthorId:     posting.AuthorID,
-		AuthorName:   posting.AuthorName,
-		CreatedAt:    timestamppb.New(posting.CreatedAt),
-		UpdatedAt:    timestamppb.New(posting.UpdatedAt),
-		ViewCount:    int32(posting.ViewCount),
-		CommentCount: int32(posting.CommentCount),
-		Tags:         posting.Tags,
-		Status:       boardServer.PostingStatus_POSTING_STATUS_PUBLISHED,
-		Comments:     boardComments,
-	}, nil
+	postingForResponse := utils.PostingToProto(posting)
+	postingForResponse.Comments = boardComments
+
+	return postingForResponse, nil
 }
 
 // ListCommentsByPosting implements boardv1.BoardServiceServer.
 func (s *Service) ListCommentsByPosting(ctx context.Context, req *boardServer.ListCommentsByPostingRequest) (*boardServer.ListCommentsResponse, error) {
 	comments, err := s.commentRepository.GetByPostID(ctx, req.PostingId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get comments: %v", err)
+		return nil, status.Errorf(codes.Internal, "commentRepository.GetByPostID: %v", err)
 	}
 
 	boardComments := make([]*boardServer.Comment, len(comments))
 	for i, comment := range comments {
-		depth := 0
-		if comment.ParentID != nil {
-			depth = 1
-		}
-		boardComments[i] = &boardServer.Comment{
-			CommentId:  comment.ID,
-			PostingId:  comment.PostID,
-			Content:    comment.Content,
-			AuthorId:   comment.AuthorID,
-			AuthorName: comment.AuthorName,
-			CreatedAt:  timestamppb.New(comment.CreatedAt),
-			UpdatedAt:  timestamppb.New(comment.UpdatedAt),
-			ParentId:   *comment.ParentID,
-			Depth:      int32(depth),
-			Status:     comment.Status,
-		}
+		boardComments[i] = utils.CommentToProto(&comment)
 	}
+
 	return &boardServer.ListCommentsResponse{Comments: boardComments}, nil
 }
 
@@ -268,7 +184,7 @@ func (s *Service) ListCommentsByPosting(ctx context.Context, req *boardServer.Li
 func (s *Service) ListPostings(ctx context.Context, req *boardServer.ListPostingsRequest) (*boardServer.ListPostingsResponse, error) {
 	token, err := pagination.FromEncodedString(req.PageToken)
 	if err != nil {
-		return nil, status.Errorf(codes.InvalidArgument, "invalid token: %v", err)
+		return nil, status.Errorf(codes.InvalidArgument, "pagination.FromEncodedString: %v", err)
 	}
 
 	postings, err := s.postingRepository.FindAll(ctx, &db.CursorBasedPagination{
@@ -276,24 +192,12 @@ func (s *Service) ListPostings(ctx context.Context, req *boardServer.ListPosting
 		Limit:  token.Limit,
 	})
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get postings: %v", err)
+		return nil, status.Errorf(codes.Internal, "postingRepository.FindAll: %v", err)
 	}
 
 	boardPostings := make([]*boardServer.Posting, len(postings.Data))
 	for i, posting := range postings.Data {
-		boardPostings[i] = &boardServer.Posting{
-			PostingId:    int64(posting.ID),
-			Title:        posting.Title,
-			Content:      posting.Content,
-			AuthorId:     posting.AuthorID,
-			AuthorName:   posting.AuthorName,
-			CreatedAt:    timestamppb.New(posting.CreatedAt),
-			UpdatedAt:    timestamppb.New(posting.UpdatedAt),
-			ViewCount:    int32(posting.ViewCount),
-			CommentCount: int32(posting.CommentCount),
-			Tags:         posting.Tags,
-			Status:       boardServer.PostingStatus_POSTING_STATUS_PUBLISHED,
-		}
+		boardPostings[i] = utils.PostingToProto(&posting)
 	}
 
 	nextCursor := int64(0)
@@ -324,7 +228,7 @@ func (s *Service) UpdateComment(ctx context.Context, req *boardServer.UpdateComm
 
 	comment, err := s.commentRepository.GetByID(ctx, req.CommentId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get comment: %v", err)
+		return nil, status.Errorf(codes.Internal, "commentRepository.GetByID: %v", err)
 	}
 
 	if comment.AuthorID != authUser.ID {
@@ -335,31 +239,10 @@ func (s *Service) UpdateComment(ctx context.Context, req *boardServer.UpdateComm
 	comment.UpdatedAt = time.Now()
 
 	if err := s.commentRepository.Save(ctx, comment); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update comment: %v", err)
+		return nil, status.Errorf(codes.Internal, "commentRepository.Save: %v", err)
 	}
 
-	depth := 0
-	if comment.ParentID != nil {
-		depth = 1
-	}
-
-	parentID := int64(0)
-	if comment.ParentID != nil {
-		parentID = *comment.ParentID
-	}
-
-	return &boardServer.Comment{
-		CommentId:  comment.ID,
-		PostingId:  comment.PostID,
-		Content:    comment.Content,
-		AuthorId:   comment.AuthorID,
-		AuthorName: comment.AuthorName,
-		CreatedAt:  timestamppb.New(comment.CreatedAt),
-		UpdatedAt:  timestamppb.New(comment.UpdatedAt),
-		ParentId:   parentID,
-		Depth:      int32(depth),
-		Status:     comment.Status,
-	}, nil
+	return utils.CommentToProto(comment), nil
 }
 
 // UpdatePosting implements boardv1.BoardServiceServer.
@@ -369,9 +252,9 @@ func (s *Service) UpdatePosting(ctx context.Context, req *boardServer.UpdatePost
 		return nil, err
 	}
 
-	posting, err := s.postingRepository.FindOneByID(ctx, int(req.PostingId))
+	posting, err := s.postingRepository.FindOneByID(ctx, req.PostingId)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to get posting: %v", err)
+		return nil, status.Errorf(codes.Internal, "postingRepository.FindOneByID: %v", err)
 	}
 
 	if posting.AuthorID != authUser.ID {
@@ -385,22 +268,10 @@ func (s *Service) UpdatePosting(ctx context.Context, req *boardServer.UpdatePost
 	posting.UpdatedAt = time.Now()
 
 	if err := s.postingRepository.Save(ctx, posting); err != nil {
-		return nil, status.Errorf(codes.Internal, "failed to update posting: %v", err)
+		return nil, status.Errorf(codes.Internal, "postingRepository.Save: %v", err)
 	}
 
-	return &boardServer.Posting{
-		PostingId:    int64(posting.ID),
-		Title:        posting.Title,
-		Content:      posting.Content,
-		AuthorId:     posting.AuthorID,
-		AuthorName:   posting.AuthorName,
-		CreatedAt:    timestamppb.New(posting.CreatedAt),
-		UpdatedAt:    timestamppb.New(posting.UpdatedAt),
-		ViewCount:    int32(posting.ViewCount),
-		CommentCount: int32(posting.CommentCount),
-		Tags:         posting.Tags,
-		Status:       posting.Status,
-	}, nil
+	return utils.PostingToProto(posting), nil
 }
 
 var _ boardServer.BoardServiceServer = &Service{}
@@ -434,6 +305,12 @@ func WithCacheStore(cache cstore.CacheStore) ServiceOption {
 func WithDLockerFactory(dlockerFactory dlock.DLockerFactory) ServiceOption {
 	return func(s *Service) {
 		s.dlockerFactory = dlockerFactory
+	}
+}
+
+func WithViewCountManager(viewCountManager viewcount.ViewCountManager) ServiceOption {
+	return func(s *Service) {
+		s.viewCountManager = viewCountManager
 	}
 }
 

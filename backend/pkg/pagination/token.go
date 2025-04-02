@@ -8,12 +8,12 @@ import (
 
 type Token struct {
 	Cursor *int64
-	Limit  *int64
+	Limit  *int
 }
 
-const DefaultLimit = int64(10)
+const DefaultLimit = 10
 
-func NewToken(cursor int64, limit int64) *Token {
+func NewToken(cursor int64, limit int) *Token {
 	return &Token{
 		Cursor: &cursor,
 		Limit:  &limit,

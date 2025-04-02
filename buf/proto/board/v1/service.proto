@@ -65,7 +65,6 @@ service BoardService {
 
   // ListCommentsByPosting은 특정 게시물에 달린 모든 댓글을 조회합니다.
   // 페이지네이션을 지원하며, 정렬 방향을 지정할 수 있습니다.
-  // 대댓글 구조는 parent_id와 depth 필드를 통해 확인할 수 있습니다.
   rpc ListCommentsByPosting(ListCommentsByPostingRequest) returns (ListCommentsResponse) {
     option (google.api.http) = {
       get: "/v1/postings/{posting_id}/comments"
@@ -169,16 +168,18 @@ message Posting {
   google.protobuf.Timestamp created_at = 6;
   // 게시물 최종 수정 시간
   google.protobuf.Timestamp updated_at = 7;
+  // 게시물 삭제 시간
+  google.protobuf.Timestamp deleted_at = 8;
   // 게시물 조회수
-  int32 view_count = 8;
+  int32 view_count = 9;
   // 게시물에 달린 댓글 수
-  int32 comment_count = 9;
+  int32 comment_count = 10;
   // 게시물에 적용된 태그 목록 (각 태그 최대 50자)
-  repeated string tags = 10;
+  repeated string tags = 11;
   // 게시물의 현재 상태
-  PostingStatus status = 11;
+  PostingStatus status = 12;
   // 게시물의 댓글 목록
-  repeated Comment comments = 12;
+  repeated Comment comments = 13;
 }
 
 // Comment는 게시물에 달린 댓글 정보를 나타냅니다.
@@ -197,10 +198,10 @@ message Comment {
   google.protobuf.Timestamp created_at = 6;
   // 댓글 최종 수정 시간
   google.protobuf.Timestamp updated_at = 7;
+  // 댓글 삭제 시간
+  google.protobuf.Timestamp deleted_at = 8;
   // 대댓글인 경우 부모 댓글의 ID (최상위 댓글인 경우 0)
-  int64 parent_id = 8;
-  // 댓글 깊이 (최상위 댓글: 0, 대댓글: 1 이상)
-  int32 depth = 9;
+  int64 parent_id = 9;
   // 댓글의 현재 상태
   CommentStatus status = 10;
   // 대댓글 목록
