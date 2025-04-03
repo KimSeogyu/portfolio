@@ -8,69 +8,12 @@ import (
 	"time"
 
 	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/postings"
-	"github.com/kimseogyu/portfolio/backend/internal/cstore"
-	"github.com/kimseogyu/portfolio/backend/internal/db"
+	"github.com/kimseogyu/portfolio/backend/cmd/board/internal/testutils"
 	boardServer "github.com/kimseogyu/portfolio/backend/internal/proto/board/v1"
-	"github.com/kimseogyu/portfolio/backend/internal/redisutils"
-	"github.com/kimseogyu/portfolio/backend/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
-
-func setupTestDB(t *testing.T) (*gorm.DB, cstore.CacheStore) {
-	pg, err := testutils.NewPostgresTestContainer(context.Background())
-	require.NoError(t, err)
-
-	t.Cleanup(func() {
-		err = pg.Close()
-		require.NoError(t, err)
-	})
-
-	endpoint, err := pg.Endpoint()
-	require.NoError(t, err)
-
-	db, err := db.NewPostgresDB(db.WithDSN(endpoint))
-	require.NoError(t, err)
-
-	// Auto-migrate the Comment 및 Posting 모델
-	err = db.AutoMigrate(&Comment{}, &postings.Posting{})
-	require.NoError(t, err)
-
-	// 테이블 truncate로 깨끗한 상태 유지
-	truncateTables(t, db)
-
-	redisContainer, err := testutils.NewRedisTestContainer(context.Background())
-	require.NoError(t, err)
-
-	redisEndpoint, err := redisContainer.Endpoint(context.Background(), "")
-	require.NoError(t, err)
-
-	redisClient, err := redisutils.NewRedisClient(context.Background(), redisEndpoint)
-	require.NoError(t, err)
-
-	cacheStore := cstore.NewCacheStore(redisClient)
-
-	return db, cacheStore
-}
-
-// 테이블 데이터 정리 함수
-func truncateTables(t *testing.T, db *gorm.DB) {
-	// 외래 키 제약 조건 일시적으로 비활성화
-	err := db.Exec("SET CONSTRAINTS ALL DEFERRED").Error
-	require.NoError(t, err)
-
-	// 테이블 truncate - 댓글 먼저 삭제 (외래 키 의존성 때문)
-	err = db.Exec("TRUNCATE TABLE comments RESTART IDENTITY CASCADE").Error
-	require.NoError(t, err)
-
-	err = db.Exec("TRUNCATE TABLE postings RESTART IDENTITY CASCADE").Error
-	require.NoError(t, err)
-
-	// 외래 키 제약 조건 다시 활성화
-	err = db.Exec("SET CONSTRAINTS ALL IMMEDIATE").Error
-	require.NoError(t, err)
-}
 
 // 테스트용 Helper 함수들
 func createTestPosting(t *testing.T, db *gorm.DB) int64 {
@@ -124,12 +67,18 @@ func printCommentsState(t *testing.T, db *gorm.DB, postID int64) {
 }
 
 func TestRepository(t *testing.T) {
-	db, cacheStore := setupTestDB(t)
-	repo := NewRepository(db, cacheStore)
+	fixture, err := testutils.SetupFixture(t)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, fixture.DbContainer.Close())
+		require.NoError(t, fixture.RedisContainer.Terminate(context.Background()))
+	})
+
+	repo := NewRepository(fixture.Conn, fixture.CacheStore)
 	ctx := context.Background()
 
 	t.Run("Save and GetByID", func(t *testing.T) {
-		truncateTables(t, db)
+		testutils.TruncateTables(t, fixture.Conn)
 		comment := &Comment{
 			PostID:    1,
 			Content:   "Test comment",
@@ -148,7 +97,7 @@ func TestRepository(t *testing.T) {
 	})
 
 	t.Run("Save with ParentID", func(t *testing.T) {
-		truncateTables(t, db)
+		testutils.TruncateTables(t, fixture.Conn)
 		parent := &Comment{
 			PostID:    1,
 			Content:   "Parent comment",
@@ -175,7 +124,7 @@ func TestRepository(t *testing.T) {
 	})
 
 	t.Run("GetByPostID", func(t *testing.T) {
-		truncateTables(t, db)
+		testutils.TruncateTables(t, fixture.Conn)
 		// Create multiple comments for the same post
 		post2Comments := []*Comment{
 			{PostID: 2, Content: "First comment"},
@@ -318,7 +267,7 @@ func TestRepository(t *testing.T) {
 	})
 
 	t.Run("GetByID", func(t *testing.T) {
-		truncateTables(t, db)
+		testutils.TruncateTables(t, fixture.Conn)
 		comment := &Comment{
 			PostID:    1,
 			Content:   "Test comment",
